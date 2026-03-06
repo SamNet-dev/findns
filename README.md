@@ -86,6 +86,69 @@ chmod +x findns-linux-amd64
 
 ---
 
+## 🪟 Windows Guide
+
+Windows is fully supported. Two ways to get started:
+
+### Option 1: Download Binary (Easiest)
+
+1. Go to the [Releases](https://github.com/SamNet-dev/findns/releases) page
+2. Download `findns-windows-amd64.exe`
+3. Rename it to `findns.exe` (optional, for convenience)
+4. Open **cmd** or **PowerShell** in the same folder
+5. Run:
+
+```powershell
+.\findns.exe --help
+```
+
+> No Go installation needed — just download and run.
+
+### Option 2: Build from Source
+
+Requires **Go 1.24+** installed from [go.dev/dl](https://go.dev/dl/).
+
+```powershell
+git clone https://github.com/SamNet-dev/findns.git
+cd findns
+go build -o findns.exe ./cmd
+```
+
+### Run
+
+Use `.\findns.exe` instead of `./scanner` in all commands:
+
+```powershell
+# Fetch resolvers
+.\findns.exe fetch -o resolvers.txt
+
+# Full scan
+.\findns.exe scan -i resolvers.txt -o results.json --domain t.example.com
+
+# With e2e test
+.\findns.exe scan -i resolvers.txt -o results.json ^
+  --domain t.example.com --pubkey <hex-pubkey>
+```
+
+> **Tip:** In PowerShell, use backtick `` ` `` for line continuation instead of `^`.
+
+### Prerequisites
+
+- **curl** — included by default in Windows 10/11
+- **dnstt-client.exe** — place next to `findns.exe` or in a folder in your `PATH` (only for e2e DNSTT tests)
+- **slipstream-client.exe** — same as above (only for e2e Slipstream tests)
+
+### Common Issues
+
+| Issue | Fix |
+|-------|-----|
+| `ping` shows 0% loss but scan fails | Run as **Administrator** — Windows ICMP requires elevated privileges |
+| `dnstt-client` not found | Place `dnstt-client.exe` next to `findns.exe` or add its folder to PATH |
+| PowerShell blocks execution | Use `cmd.exe` or run `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
+| Long commands break | Use backtick `` ` `` (PowerShell) or `^` (cmd) for line continuation |
+
+---
+
 ## 🚀 Quick Start
 
 ### 1️⃣ Get Resolver Lists
@@ -574,6 +637,81 @@ go install github.com/SamNet-dev/findns/cmd@latest
 - **dnstt-client** در PATH (برای تست e2e DNSTT)
 - **slipstream-client** در PATH (برای تست e2e Slipstream)
 - **curl** در PATH (برای تأیید اتصال e2e)
+
+---
+
+## 🪟 راهنمای ویندوز
+
+ویندوز به طور کامل پشتیبانی می‌شود. دو روش برای شروع:
+
+### روش ۱: دانلود باینری (ساده‌ترین)
+
+1. به صفحه [Releases](https://github.com/SamNet-dev/findns/releases) بروید
+2. فایل `findns-windows-amd64.exe` را دانلود کنید
+3. نام آن را به `findns.exe` تغییر دهید (اختیاری)
+4. **cmd** یا **PowerShell** را در همان پوشه باز کنید
+5. اجرا کنید:
+
+</div>
+
+```powershell
+.\findns.exe --help
+```
+
+<div dir="rtl">
+
+> نیازی به نصب Go نیست — فقط دانلود و اجرا کنید.
+
+### روش ۲: بیلد از سورس
+
+نیاز به **Go 1.24+** از [go.dev/dl](https://go.dev/dl/) دارد.
+
+</div>
+
+```powershell
+git clone https://github.com/SamNet-dev/findns.git
+cd findns
+go build -o findns.exe ./cmd
+```
+
+<div dir="rtl">
+
+### اجرا
+
+در تمام دستورات به جای `./scanner` از `.\findns.exe` استفاده کنید:
+
+</div>
+
+```powershell
+# دریافت لیست resolverها
+.\findns.exe fetch -o resolvers.txt
+
+# اسکن کامل
+.\findns.exe scan -i resolvers.txt -o results.json --domain t.example.com
+
+# با تست e2e
+.\findns.exe scan -i resolvers.txt -o results.json ^
+  --domain t.example.com --pubkey <hex-pubkey>
+```
+
+<div dir="rtl">
+
+> **نکته:** در PowerShell از بک‌تیک `` ` `` برای ادامه خط استفاده کنید (به جای `^`).
+
+### پیش‌نیازها
+
+- **curl** — در ویندوز 10/11 به صورت پیش‌فرض نصب است
+- **dnstt-client.exe** — کنار `findns.exe` قرار دهید یا در PATH اضافه کنید (فقط برای تست e2e DNSTT)
+- **slipstream-client.exe** — مثل بالا (فقط برای تست e2e Slipstream)
+
+### مشکلات رایج
+
+| مشکل | راه حل |
+|------|--------|
+| `ping` نشان می‌دهد 0% loss ولی اسکن فیل می‌شود | به عنوان **Administrator** اجرا کنید — ICMP در ویندوز نیاز به دسترسی بالا دارد |
+| `dnstt-client` پیدا نمی‌شود | فایل `dnstt-client.exe` را کنار `findns.exe` قرار دهید یا پوشه‌اش را به PATH اضافه کنید |
+| PowerShell اجرا را بلاک می‌کند | از `cmd.exe` استفاده کنید یا `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` را اجرا کنید |
+| دستورات طولانی خطا می‌دهند | از بک‌تیک `` ` `` (PowerShell) یا `^` (cmd) برای ادامه خط استفاده کنید |
 
 ---
 
