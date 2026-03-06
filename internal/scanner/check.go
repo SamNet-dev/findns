@@ -65,11 +65,11 @@ func PingCheck(count int) CheckFunc {
 
 		args := buildPingArgs(count, secs, deadline, ip)
 		cmd := exec.CommandContext(ctx, "ping", args...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
+		out, _ := cmd.CombinedOutput()
+		avg := parsePingAvg(string(out))
+		if avg <= 0 {
 			return false, nil
 		}
-		avg := parsePingAvg(string(out))
 		return true, Metrics{"ping_ms": avg}
 	}
 }

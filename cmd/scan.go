@@ -276,7 +276,7 @@ func printSummary(report scanner.ChainReport, topN int, totalTime time.Duration)
 	fmt.Fprintf(w, "\n  %s\u250c%s\u2510%s\n", colorDim, strings.Repeat("\u2500", 60), colorReset)
 	fmt.Fprintf(w, "  %s\u2502%s %sTop %d Resolvers%s%s%s\u2502%s\n",
 		colorDim, colorReset, colorBold, limit, colorReset,
-		strings.Repeat(" ", 60-17-digitCount(limit)), colorDim, colorReset)
+		strings.Repeat(" ", max(0, 60-17-digitCount(limit))), colorDim, colorReset)
 	fmt.Fprintf(w, "  %s\u251c%s\u2524%s\n", colorDim, strings.Repeat("\u2500", 60), colorReset)
 
 	for i := 0; i < limit; i++ {

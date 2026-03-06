@@ -24,13 +24,18 @@ func execCommandContext(ctx context.Context, name string, args ...string) *exec.
 
 func DnsttCheck(domain, pubkey, testURL string, ports chan int) CheckFunc {
 	return func(ip string, timeout time.Duration) (bool, Metrics) {
-		port := <-ports
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		var port int
+		select {
+		case port = <-ports:
+		case <-ctx.Done():
+			return false, nil
+		}
 		defer func() { ports <- port }()
 
 		start := time.Now()
-
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
 
 		cmd := execCommandContext(ctx, "dnstt-client",
 			"-udp", ip+":53",
@@ -49,8 +54,13 @@ func DnsttCheck(domain, pubkey, testURL string, ports chan int) CheckFunc {
 			time.Sleep(100 * time.Millisecond)
 		}()
 
+		// Wait for subprocess to start, but cap at 1/3 of timeout
+		startupWait := timeout / 3
+		if startupWait > 2*time.Second {
+			startupWait = 2 * time.Second
+		}
 		select {
-		case <-time.After(2 * time.Second):
+		case <-time.After(startupWait):
 		case <-ctx.Done():
 			return false, nil
 		}
@@ -65,13 +75,18 @@ func DnsttCheck(domain, pubkey, testURL string, ports chan int) CheckFunc {
 
 func SlipstreamCheck(domain, certPath, testURL string, ports chan int) CheckFunc {
 	return func(ip string, timeout time.Duration) (bool, Metrics) {
-		port := <-ports
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		var port int
+		select {
+		case port = <-ports:
+		case <-ctx.Done():
+			return false, nil
+		}
 		defer func() { ports <- port }()
 
 		start := time.Now()
-
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
 
 		args := []string{
 			"-d", domain,
@@ -93,8 +108,13 @@ func SlipstreamCheck(domain, certPath, testURL string, ports chan int) CheckFunc
 			time.Sleep(100 * time.Millisecond)
 		}()
 
+		// Wait for subprocess to start, but cap at 1/3 of timeout
+		startupWait := timeout / 3
+		if startupWait > 2*time.Second {
+			startupWait = 2 * time.Second
+		}
 		select {
-		case <-time.After(2 * time.Second):
+		case <-time.After(startupWait):
 		case <-ctx.Done():
 			return false, nil
 		}

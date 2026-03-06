@@ -25,8 +25,15 @@ func RunPool(ips []string, workers int, timeout time.Duration, check CheckFunc, 
 	for i := 0; i < workers; i++ {
 		go func() {
 			for ip := range jobs {
-				ok, m := check(ip, timeout)
-				results <- Result{IP: ip, OK: ok, Metrics: m}
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							results <- Result{IP: ip, OK: false}
+						}
+					}()
+					ok, m := check(ip, timeout)
+					results <- Result{IP: ip, OK: ok, Metrics: m}
+				}()
 			}
 		}()
 	}

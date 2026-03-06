@@ -73,7 +73,9 @@ func writeReport(mode string, results []scanner.Result, elapsed time.Duration, s
 	if sortBy != "" {
 		scanner.SortByMetric(passed, sortBy)
 	}
-	sorted := append(passed, failed...)
+	sorted := make([]scanner.Result, 0, len(results))
+	sorted = append(sorted, passed...)
+	sorted = append(sorted, failed...)
 
 	if err := scanner.WriteReport(sorted, outputFile); err != nil {
 		return err
