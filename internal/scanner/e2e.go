@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -47,7 +48,7 @@ func dnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) 
 		start := time.Now()
 
 		cmd := execCommandContext(ctx, bin,
-			"-udp", ip+":53",
+			"-udp", net.JoinHostPort(ip, "53"),
 			"-pubkey", pubkey,
 			domain,
 			fmt.Sprintf("127.0.0.1:%d", port))
@@ -108,7 +109,7 @@ func slipstreamCheck(bin, domain, certPath, testURL, proxyAuth string, ports cha
 
 		args := []string{
 			"-d", domain,
-			"-r", ip + ":53",
+			"-r", net.JoinHostPort(ip, "53"),
 			"-l", fmt.Sprintf("%d", port),
 		}
 		if certPath != "" {

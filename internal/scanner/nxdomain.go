@@ -3,6 +3,7 @@ package scanner
 import (
 	"fmt"
 	"math/rand"
+	"net"
 	"time"
 
 	"github.com/miekg/dns"
@@ -34,7 +35,7 @@ func NXDomainCheck(count int) CheckFunc {
 			c.Net = "udp"
 			c.Timeout = timeout
 
-			r, _, err := c.Exchange(m, ip+":53")
+			r, _, err := c.Exchange(m, net.JoinHostPort(ip, "53"))
 			if err != nil || r == nil {
 				continue
 			}

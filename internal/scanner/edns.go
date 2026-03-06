@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/miekg/dns"
@@ -55,7 +56,7 @@ func testEDNSPayload(resolver, domain string, payload uint16, timeout time.Durat
 		c.Timeout = timeout
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		r, _, err := c.ExchangeContext(ctx, m, resolver+":53")
+		r, _, err := c.ExchangeContext(ctx, m, net.JoinHostPort(resolver, "53"))
 		cancel()
 
 		if err != nil || r == nil {

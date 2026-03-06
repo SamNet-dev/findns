@@ -2,15 +2,21 @@ package scanner
 
 import (
 	"context"
+	"net"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
-func query(resolver, domain string, qtype uint16, timeout time.Duration) (*dns.Msg, bool) {
+// queryRaw sends a DNS query and handles EDNS0 + TCP fallback on truncation.
+// Returns the response regardless of Rcode, so callers can inspect Authority section.
+func queryRaw(resolver, domain string, qtype uint16, timeout time.Duration) (*dns.Msg, bool) {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), qtype)
 	m.RecursionDesired = true
+	m.SetEdns0(1232, false)
+
+	addr := net.JoinHostPort(resolver, "53")
 
 	c := new(dns.Client)
 	c.Net = "udp"
@@ -19,8 +25,26 @@ func query(resolver, domain string, qtype uint16, timeout time.Duration) (*dns.M
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	r, _, err := c.ExchangeContext(ctx, m, resolver+":53")
-	if err != nil || r == nil || r.Rcode != dns.RcodeSuccess {
+	r, _, err := c.ExchangeContext(ctx, m, addr)
+	if err != nil || r == nil {
+		return nil, false
+	}
+
+	// Retry over TCP if response was truncated
+	if r.Truncated {
+		c.Net = "tcp"
+		r, _, err = c.ExchangeContext(ctx, m, addr)
+		if err != nil || r == nil {
+			return nil, false
+		}
+	}
+
+	return r, true
+}
+
+func query(resolver, domain string, qtype uint16, timeout time.Duration) (*dns.Msg, bool) {
+	r, ok := queryRaw(resolver, domain, qtype, timeout)
+	if !ok || r.Rcode != dns.RcodeSuccess {
 		return nil, false
 	}
 	return r, true
@@ -35,7 +59,7 @@ func QueryA(resolver, domain string, timeout time.Duration) bool {
 }
 
 func QueryNS(resolver, domain string, timeout time.Duration) ([]string, bool) {
-	r, ok := query(resolver, domain, dns.TypeNS, timeout)
+	r, ok := queryRaw(resolver, domain, dns.TypeNS, timeout)
 	if !ok {
 		return nil, false
 	}

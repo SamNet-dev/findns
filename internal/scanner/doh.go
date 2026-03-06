@@ -20,8 +20,9 @@ var dohHTTPClient = &http.Client{
 	},
 }
 
-// QueryDoH sends a DNS query to a DoH resolver URL and returns the response.
-func QueryDoH(resolverURL, domain string, qtype uint16, timeout time.Duration) (*dns.Msg, bool) {
+// queryDoHRaw sends a DNS query to a DoH resolver and returns the response
+// regardless of Rcode, so callers can inspect Authority section.
+func queryDoHRaw(resolverURL, domain string, qtype uint16, timeout time.Duration) (*dns.Msg, bool) {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), qtype)
 	m.RecursionDesired = true
@@ -61,10 +62,16 @@ func QueryDoH(resolverURL, domain string, qtype uint16, timeout time.Duration) (
 		return nil, false
 	}
 
-	if reply.Rcode != dns.RcodeSuccess {
+	return reply, true
+}
+
+// QueryDoH sends a DNS query to a DoH resolver URL and returns the response.
+func QueryDoH(resolverURL, domain string, qtype uint16, timeout time.Duration) (*dns.Msg, bool) {
+	r, ok := queryDoHRaw(resolverURL, domain, qtype, timeout)
+	if !ok || r.Rcode != dns.RcodeSuccess {
 		return nil, false
 	}
-	return reply, true
+	return r, true
 }
 
 // QueryDoHA tests if a DoH resolver can resolve an A record.
@@ -78,7 +85,7 @@ func QueryDoHA(resolverURL, domain string, timeout time.Duration) bool {
 
 // QueryDoHNS queries NS records via DoH.
 func QueryDoHNS(resolverURL, domain string, timeout time.Duration) ([]string, bool) {
-	r, ok := QueryDoH(resolverURL, domain, dns.TypeNS, timeout)
+	r, ok := queryDoHRaw(resolverURL, domain, dns.TypeNS, timeout)
 	if !ok {
 		return nil, false
 	}
