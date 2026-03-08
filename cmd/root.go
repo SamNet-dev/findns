@@ -179,6 +179,70 @@ func newProgressFactoryWithTotal(total int) scanner.ProgressFactory {
 	}
 }
 
+func newScanProgressFactory(totalSteps int, descriptions map[string]string) scanner.ProgressFactory {
+	if !isTTY() {
+		return nil
+	}
+	stepNum := 0
+	return func(stepName string) scanner.ProgressFunc {
+		stepNum++
+		label := fmt.Sprintf("[%d/%d] %s", stepNum, totalSteps, stepName)
+
+		// Print step description banner
+		w := os.Stderr
+		if desc, ok := descriptions[stepName]; ok {
+			fmt.Fprintf(w, "  %s── %s ─────────────────────────────────%s\n", colorDim, desc, colorReset)
+		}
+
+		start := time.Now()
+		warnedLow := false
+
+		return func(done, total, passed, failed int) {
+			if total == 0 {
+				return
+			}
+			pct := done * 100 / total
+			elapsed := time.Since(start).Truncate(time.Second)
+			bar := progressBar(pct, 20)
+			fmt.Fprintf(w, "\r\033[2K  \033[1m%s\033[0m  %s  %d/%d  \033[32m%d \u2714\033[0m  \033[31m%d \u2718\033[0m  \033[2m%s\033[0m",
+				label, bar, done, total, passed, failed, elapsed)
+
+			// Live warning: after 25% done with enough samples, if pass rate < 5%
+			if !warnedLow && done > 20 && done >= total/4 {
+				rate := passed * 100 / done
+				if rate < 5 {
+					warnedLow = true
+					fmt.Fprintf(w, "\n  %s\u26a0 Very low pass rate (%d%%) — check configuration%s\n", colorYellow, rate, colorReset)
+				}
+			}
+
+			// Completion: inter-step summary
+			if done == total {
+				elapsed = time.Since(start).Truncate(time.Second)
+				passRate := 0
+				if total > 0 {
+					passRate = passed * 100 / total
+				}
+				color := colorGreen
+				if passRate < 50 {
+					color = colorYellow
+				}
+				if passRate < 20 {
+					color = colorRed
+				}
+				fmt.Fprintf(w, "\r\033[2K  %s\u2714%s %-18s  %s%d/%d passed (%d%%)%s  %s%s%s\n",
+					color, colorReset,
+					stepName,
+					color, passed, total, passRate, colorReset,
+					colorDim, elapsed, colorReset)
+				if stepNum < totalSteps && passed > 0 {
+					fmt.Fprintf(w, "  %s\u21b3 %d resolvers advancing to next step%s\n", colorDim, passed, colorReset)
+				}
+			}
+		}
+	}
+}
+
 func progressBar(pct, width int) string {
 	filled := pct * width / 100
 	bar := make([]rune, width)

@@ -24,6 +24,19 @@ const (
 	colorWhite  = "\033[37m"
 )
 
+var stepDescriptions = map[string]string{
+	"ping":               "Testing ICMP reachability of resolvers",
+	"resolve":            "Checking if resolvers can resolve standard domains",
+	"nxdomain":           "Detecting DNS hijacking on non-existent domains",
+	"edns":               "Testing EDNS0 support and buffer sizes",
+	"resolve/tunnel":     "Verifying resolvers forward queries to your tunnel domain",
+	"e2e/dnstt":          "Full tunnel connectivity test via DNSTT",
+	"e2e/slipstream":     "Full tunnel connectivity test via Slipstream",
+	"doh/resolve":        "Checking DoH resolver connectivity",
+	"doh/resolve/tunnel": "Verifying DoH resolvers forward to your tunnel domain",
+	"doh/e2e":            "Full DoH tunnel connectivity test via DNSTT",
+}
+
 var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Full scan pipeline: ping -> resolve -> nxdomain -> tunnel -> e2e",
@@ -168,19 +181,20 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	printBanner(len(ips), dohMode, domain, steps)
+	printPreFlight(len(ips), domain, dnsttBin, slipstreamBin, steps)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	scanStart := time.Now()
-	report := scanner.RunChainQuietCtx(ctx, ips, workers, steps, newProgressFactoryWithTotal(len(steps)))
+	report := scanner.RunChainQuietCtx(ctx, ips, workers, steps, newScanProgressFactory(len(steps), stepDescriptions))
 	totalTime := time.Since(scanStart)
 
 	if ctx.Err() != nil {
 		fmt.Fprintf(os.Stderr, "\n\n  %s⚠ Interrupted — saving partial results to %s%s\n", colorYellow, outputFile, colorReset)
 	}
 
-	printSummary(report, topN, totalTime)
+	printSummary(report, topN, totalTime, domain)
 
 	return scanner.WriteChainReport(report, outputFile)
 }
@@ -194,6 +208,29 @@ func pad(s string, width int) string {
 
 func hline(left, fill, right string, width int) string {
 	return left + strings.Repeat(fill, width) + right
+}
+
+func printPreFlight(ipCount int, domain, dnsttBin, slipstreamBin string, steps []scanner.Step) {
+	if !isTTY() {
+		return
+	}
+	w := os.Stderr
+	fmt.Fprintf(w, "  %sPre-flight:%s\n", colorBold, colorReset)
+	fmt.Fprintf(w, "    %s\u2714%s %d resolvers loaded\n", colorGreen, colorReset, ipCount)
+	fmt.Fprintf(w, "    %s\u2714%s %d workers\n", colorGreen, colorReset, workers)
+	fmt.Fprintf(w, "    %s\u2714%s %d scan steps configured\n", colorGreen, colorReset, len(steps))
+	if dnsttBin != "" {
+		fmt.Fprintf(w, "    %s\u2714%s dnstt-client: %s%s%s\n", colorGreen, colorReset, colorDim, dnsttBin, colorReset)
+	}
+	if slipstreamBin != "" {
+		fmt.Fprintf(w, "    %s\u2714%s slipstream-client: %s%s%s\n", colorGreen, colorReset, colorDim, slipstreamBin, colorReset)
+	}
+	if domain != "" {
+		fmt.Fprintf(w, "    %s\u26a0%s Domain: %s%s%s — %sverify NS delegation before scanning%s\n",
+			colorYellow, colorReset, colorCyan, domain, colorReset, colorDim, colorReset)
+		fmt.Fprintf(w, "      %snslookup -type=NS %s 8.8.8.8%s\n", colorDim, domain, colorReset)
+	}
+	fmt.Fprintf(w, "\n")
 }
 
 func printBanner(count int, doh bool, domain string, steps []scanner.Step) {
@@ -232,7 +269,7 @@ func printBanner(count int, doh bool, domain string, steps []scanner.Step) {
 	fmt.Fprintf(w, "\n\n")
 }
 
-func printSummary(report scanner.ChainReport, topN int, totalTime time.Duration) {
+func printSummary(report scanner.ChainReport, topN int, totalTime time.Duration, domain string) {
 	w := os.Stderr
 
 	fmt.Fprintf(w, "\n")
@@ -295,6 +332,7 @@ func printSummary(report scanner.ChainReport, topN int, totalTime time.Duration)
 				break // Only show hint for the first failing step
 			}
 		}
+		fmt.Fprintf(w, "\n  %sSee full guide: https://github.com/SamNet-dev/findns/blob/main/GUIDE.md%s\n", colorDim, colorReset)
 		fmt.Fprintln(w)
 		return
 	}
@@ -346,6 +384,28 @@ func printSummary(report scanner.ChainReport, topN int, totalTime time.Duration)
 		fmt.Fprintf(w, "  %s... and %d more in %s%s\n", colorDim, len(report.Passed)-limit, outputFile, colorReset)
 	}
 
+	// Next steps guidance
+	fmt.Fprintf(w, "\n  %sNext steps:%s\n", colorBold, colorReset)
+	fmt.Fprintf(w, "    %s\u2022%s Results saved to %s%s%s\n", colorDim, colorReset, colorCyan, outputFile, colorReset)
+	if domain != "" && len(report.Passed) > 0 {
+		topIP := report.Passed[0].IP
+		fmt.Fprintf(w, "    %s\u2022%s Test top resolver: %snslookup %s %s%s\n",
+			colorDim, colorReset, colorDim, domain, topIP, colorReset)
+	}
+	// Check if e2e was in pipeline
+	hasE2E := false
+	hasTunnel := false
+	for _, s := range report.Steps {
+		if strings.Contains(s.Name, "e2e") {
+			hasE2E = true
+		}
+		if strings.Contains(s.Name, "tunnel") {
+			hasTunnel = true
+		}
+	}
+	if hasTunnel && !hasE2E && len(report.Passed) > 0 {
+		fmt.Fprintf(w, "    %s\u2022%s Run with --pubkey to test full tunnel connectivity (e2e)\n", colorDim, colorReset)
+	}
 	fmt.Fprintln(w)
 }
 
