@@ -167,18 +167,6 @@ func newProgressFactory() scanner.ProgressFactory {
 	}
 }
 
-func newProgressFactoryWithTotal(total int) scanner.ProgressFactory {
-	if !isTTY() {
-		return nil
-	}
-	stepNum := 0
-	return func(stepName string) scanner.ProgressFunc {
-		stepNum++
-		label := fmt.Sprintf("[%d/%d] %s", stepNum, total, stepName)
-		return newProgress(label)
-	}
-}
-
 func newScanProgressFactory(totalSteps int, descriptions map[string]string) scanner.ProgressFactory {
 	if !isTTY() {
 		return nil
