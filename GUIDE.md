@@ -643,7 +643,9 @@ findns scan -i resolvers.txt -o results.json --domain t.example.com
 
 <div dir="rtl">
 
-مراحل: `ping -> resolve -> nxdomain -> edns -> resolve/tunnel`
+مراحل: `ping -> resolve -> nxdomain -> resolve/tunnel`
+
+> **نکته:** برای اضافه کردن تست EDNS payload size از فلگ `--edns` استفاده کنید. با این فلگ: `ping -> resolve -> nxdomain -> edns -> resolve/tunnel`
 
 ### توضیح هر مرحله
 
@@ -673,7 +675,9 @@ findns scan -i resolvers.txt -o results.json \
 
 <div dir="rtl">
 
-مراحل: `ping -> resolve -> nxdomain -> edns -> resolve/tunnel -> e2e/dnstt`
+مراحل: `ping -> resolve -> nxdomain -> resolve/tunnel -> e2e/dnstt`
+
+> با `--edns`: `ping -> resolve -> nxdomain -> edns -> resolve/tunnel -> e2e/dnstt`
 
 نیازمند: `dnstt-client` و `curl` در PATH. این مرحله واقعاً dnstt-client را اجرا می‌کند، یک تانل SOCKS می‌سازد و با curl از طریق آن تانل یک صفحه وب را باز می‌کند.
 - متریک: `e2e_ms` (کل زمان از شروع تا اتصال موفق)
@@ -727,6 +731,7 @@ findns scan -i doh-resolvers.txt -o results.json \
 | `--proxy-auth` | احراز هویت پروکسی SOCKS به صورت `user:pass` (برای تست e2e) | — |
 | `--doh` | حالت DoH به جای UDP | `false` |
 | `--skip-ping` | رد کردن مرحله ping (مفید اگر ICMP مسدود باشد) | `false` |
+| `--edns` | فعال‌سازی تست سایز EDNS payload (اختیاری) | `false` |
 | `--skip-nxdomain` | رد کردن بررسی هایجک | `false` |
 | `--top` | تعداد نتایج برتر در خروجی ترمینال | `10` |
 
@@ -1251,6 +1256,8 @@ https://dns.quad9.net/dns-query
 8.8.8.8
 1.1.1.1
 9.9.9.9
+8.8.8.8           # تکراری — به صورت خودکار حذف می‌شود
+1.1.1.1 # کامنت اینلاین — حذف می‌شود و فقط آی‌پی استفاده می‌شود
 # این یک کامنت است (نادیده گرفته می‌شود)
 
 # رنج CIDR (به صورت خودکار باز می‌شود)
@@ -1259,6 +1266,8 @@ https://dns.quad9.net/dns-query
 ```
 
 <div dir="rtl">
+
+**حذف تکراری‌ها:** آی‌پی‌های تکراری به صورت خودکار حذف می‌شوند و تعداد تکراری‌ها در stderr گزارش می‌شود. **کامنت اینلاین:** هر چیزی بعد از ` #` (فاصله + #) از انتهای خط حذف می‌شود.
 
 **پشتیبانی از CIDR:** رنج‌هایی مثل `1.2.3.0/24` به صورت خودکار به آی‌پی‌های تکی تبدیل می‌شوند (آدرس شبکه و broadcast حذف می‌شوند). این قابلیت برای اسکن بلوک‌های آی‌پی منطقه‌ای (مثل فایل‌های `iran-ipv4.cidrs`) بسیار مفید است. اگر تعداد آی‌پی‌ها بیش از 100,000 باشد هشدار نمایش داده می‌شود.
 

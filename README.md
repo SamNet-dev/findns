@@ -213,17 +213,18 @@ Automatically chains the right scan steps based on your flags. This is the **rec
 findns scan -i resolvers.txt -o results.json --domain t.example.com
 ```
 
-**UDP mode pipeline:** `ping → resolve → nxdomain → edns → tunnel → e2e`
+**UDP mode pipeline:** `ping → resolve → nxdomain → tunnel → e2e` (add `--edns` for EDNS payload check)
 **DoH mode pipeline:** `doh/resolve → doh/tunnel → doh/e2e`
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--domain` | Tunnel domain (enables tunnel/edns/e2e steps) | — |
+| `--domain` | Tunnel domain (enables tunnel/e2e steps) | — |
 | `--pubkey` | DNSTT server public key (enables e2e test) | — |
 | `--cert` | Slipstream cert path (enables Slipstream e2e) | — |
 | `--test-url` | URL to fetch through tunnel for e2e test | `https://httpbin.org/ip` |
 | `--proxy-auth` | SOCKS proxy auth as `user:pass` (for e2e tests) | — |
 | `--doh` | Scan DoH resolvers instead of UDP | `false` |
+| `--edns` | Include EDNS payload size check | `false` |
 | `--skip-ping` | Skip ICMP ping step | `false` |
 | `--skip-nxdomain` | Skip NXDOMAIN hijack check | `false` |
 | `--top` | Number of top results to display | `10` |
@@ -849,17 +850,18 @@ findns scan -i doh-resolvers.txt -o results.json \
 
 به صورت خودکار مراحل مناسب را بر اساس فلگ‌ها ترتیب می‌دهد.
 
-**حالت UDP:** `ping → resolve → nxdomain → edns → tunnel → e2e`
+**حالت UDP:** `ping → resolve → nxdomain → tunnel → e2e` (با `--edns` مرحله EDNS اضافه می‌شود)
 **حالت DoH:** `doh/resolve → doh/tunnel → doh/e2e`
 
 | فلگ | توضیح | پیش‌فرض |
 |-----|-------|---------|
-| `--domain` | دامنه تانل (فعال‌سازی تست تانل/edns/e2e) | — |
+| `--domain` | دامنه تانل (فعال‌سازی تست تانل/e2e) | — |
 | `--pubkey` | کلید عمومی سرور DNSTT (فعال‌سازی تست e2e) | — |
 | `--cert` | مسیر گواهی Slipstream (فعال‌سازی تست Slipstream) | — |
 | `--test-url` | آدرس برای تست اتصال e2e | `https://httpbin.org/ip` |
 | `--proxy-auth` | احراز هویت پروکسی SOCKS به صورت `user:pass` (برای تست e2e) | — |
 | `--doh` | اسکن DoH به جای UDP | `false` |
+| `--edns` | فعال‌سازی تست سایز EDNS payload | `false` |
 | `--skip-ping` | رد کردن مرحله ping | `false` |
 | `--skip-nxdomain` | رد کردن بررسی هایجک | `false` |
 | `--top` | تعداد نتایج برتر برای نمایش | `10` |
