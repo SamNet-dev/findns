@@ -58,7 +58,7 @@ The DNSTT server **always** listens on port 53 — that never changes. But the *
 ```bash
 git clone https://github.com/SamNet-dev/findns.git
 cd findns
-go build -o scanner ./cmd
+go build -o findns ./cmd
 ```
 
 ### Go Install
@@ -85,7 +85,7 @@ chmod +x findns-linux-amd64
 - **slipstream-client** — only for e2e Slipstream tests (`--cert`)
 - **curl** — for e2e connectivity verification
 
-> **Important:** On Linux, you must place `dnstt-client` in PATH (e.g. `/usr/local/bin/`). Just putting it next to the scanner is not enough. Run: `sudo mv dnstt-client /usr/local/bin/ && sudo chmod +x /usr/local/bin/dnstt-client`
+> **Finding binaries:** findns automatically searches for `dnstt-client` and `slipstream-client` in three places: 1) `PATH` 2) current directory 3) next to the findns executable. The simplest approach: place the binary next to findns.
 >
 > Without `--pubkey`, the scanner still finds resolvers compatible with DNS tunneling — it tests ping, resolve, NXDOMAIN, EDNS, and tunnel delegation without needing dnstt-client.
 
@@ -121,7 +121,7 @@ go build -o findns.exe ./cmd
 
 ### Run
 
-Use `.\findns.exe` instead of `./scanner` in all commands:
+Use `.\findns.exe` instead of `findns` in all commands:
 
 ```powershell
 # Fetch resolvers
@@ -160,31 +160,31 @@ Use `.\findns.exe` instead of `./scanner` in all commands:
 
 ```bash
 # 📥 Download global UDP resolvers
-./scanner fetch -o resolvers.txt
+findns fetch -o resolvers.txt
 
 # 🌍 Include 7,800+ known regional resolvers (embedded, offline)
-./scanner fetch -o resolvers.txt --local
+findns fetch -o resolvers.txt --local
 
 # 🔒 Download DoH resolver URLs
-./scanner fetch -o doh-resolvers.txt --doh
+findns fetch -o doh-resolvers.txt --doh
 ```
 
 ### 2️⃣ Run Full Scan
 
 ```bash
 # 🔍 Scan UDP resolvers (all checks)
-./scanner scan -i resolvers.txt -o results.json --domain t.example.com
+findns scan -i resolvers.txt -o results.json --domain t.example.com
 
 # 🔍 Scan with e2e DNSTT verification
-./scanner scan -i resolvers.txt -o results.json \
+findns scan -i resolvers.txt -o results.json \
   --domain t.example.com --pubkey <hex-pubkey>
 
 # 🔒 Scan DoH resolvers
-./scanner scan -i doh-resolvers.txt -o results.json \
+findns scan -i doh-resolvers.txt -o results.json \
   --domain t.example.com --doh
 
 # 🔒 DoH scan with e2e verification
-./scanner scan -i doh-resolvers.txt -o results.json \
+findns scan -i doh-resolvers.txt -o results.json \
   --domain t.example.com --pubkey <hex-pubkey> --doh
 ```
 
@@ -210,7 +210,7 @@ Results are saved as JSON. The `passed` array contains resolvers that survived a
 Automatically chains the right scan steps based on your flags. This is the **recommended** way to use the scanner.
 
 ```bash
-./scanner scan -i resolvers.txt -o results.json --domain t.example.com
+findns scan -i resolvers.txt -o results.json --domain t.example.com
 ```
 
 **UDP mode pipeline:** `ping → resolve → nxdomain → edns → tunnel → e2e`
@@ -222,6 +222,7 @@ Automatically chains the right scan steps based on your flags. This is the **rec
 | `--pubkey` | DNSTT server public key (enables e2e test) | — |
 | `--cert` | Slipstream cert path (enables Slipstream e2e) | — |
 | `--test-url` | URL to fetch through tunnel for e2e test | `https://httpbin.org/ip` |
+| `--proxy-auth` | SOCKS proxy auth as `user:pass` (for e2e tests) | — |
 | `--doh` | Scan DoH resolvers instead of UDP | `false` |
 | `--skip-ping` | Skip ICMP ping step | `false` |
 | `--skip-nxdomain` | Skip NXDOMAIN hijack check | `false` |
@@ -235,13 +236,13 @@ Automatically downloads and deduplicates resolver lists from public sources.
 
 ```bash
 # Global UDP resolvers (from trickest/resolvers)
-./scanner fetch -o resolvers.txt
+findns fetch -o resolvers.txt
 
 # Include 7,800+ known regional resolvers (embedded, no download needed)
-./scanner fetch -o resolvers.txt --local
+findns fetch -o resolvers.txt --local
 
 # DoH resolver URLs (19+ well-known + public lists)
-./scanner fetch -o doh-resolvers.txt --doh
+findns fetch -o doh-resolvers.txt --doh
 ```
 
 **Built-in DoH endpoints** include:
@@ -261,19 +262,19 @@ Export regional resolver data bundled inside the binary. No internet connection 
 ```bash
 # Mode 1: Known resolvers (default, recommended)
 # Exports 7,800+ pre-verified regional DNS resolvers — high scan success rate
-./scanner local -o resolvers.txt
+findns local -o resolvers.txt
 
 # Mode 2: Discover NEW resolvers (--discover)
 # Exports candidate IPs from 1,919 CIDR ranges (~10.8M IPs)
 # Most will NOT be DNS servers — use this to find resolvers not in the known list
-./scanner local -o candidates.txt --discover
+findns local -o candidates.txt --discover
 
 # Discovery with batch scanning (non-overlapping, no duplicates)
-./scanner local -o batch1.txt --discover --batch 1000000
-./scanner local -o batch2.txt --discover --batch 1000000 --offset 1000000
+findns local -o batch1.txt --discover --batch 1000000
+findns local -o batch2.txt --discover --batch 1000000 --offset 1000000
 
 # Show embedded CIDR ranges
-./scanner local --list-ranges
+findns local --list-ranges
 ```
 
 | Flag | Description | Default |
@@ -290,8 +291,8 @@ Export regional resolver data bundled inside the binary. No internet connection 
 ### 🏓 `ping` — ICMP Reachability
 
 ```bash
-./scanner ping -i resolvers.txt -o result.json
-./scanner ping -i resolvers.txt -o result.json -c 5 -t 2
+findns ping -i resolvers.txt -o result.json
+findns ping -i resolvers.txt -o result.json -c 5 -t 2
 ```
 
 📊 **Metric:** `ping_ms` (average RTT)
@@ -301,7 +302,7 @@ Export regional resolver data bundled inside the binary. No internet connection 
 ### 🔎 `resolve` — DNS Resolution Test
 
 ```bash
-./scanner resolve -i resolvers.txt -o result.json --domain google.com
+findns resolve -i resolvers.txt -o result.json --domain google.com
 ```
 
 📊 **Metric:** `resolve_ms` (average resolve time)
@@ -313,7 +314,7 @@ Export regional resolver data bundled inside the binary. No internet connection 
 Tests whether a resolver can see your tunnel's NS records and resolve the glue A record.
 
 ```bash
-./scanner resolve tunnel -i resolvers.txt -o result.json --domain t.example.com
+findns resolve tunnel -i resolvers.txt -o result.json --domain t.example.com
 ```
 
 📊 **Metric:** `resolve_ms` (average NS + glue query time)
@@ -325,7 +326,7 @@ Tests whether a resolver can see your tunnel's NS records and resolve the glue A
 Tests whether resolvers return proper NXDOMAIN for non-existent domains. Hijacking resolvers return fake NOERROR answers — these are **not safe** for tunneling.
 
 ```bash
-./scanner nxdomain -i resolvers.txt -o result.json
+findns nxdomain -i resolvers.txt -o result.json
 ```
 
 📊 **Metrics:** `nxdomain_ok` (count of correct responses), `hijack` (1.0 = hijacking detected)
@@ -337,7 +338,7 @@ Tests whether resolvers return proper NXDOMAIN for non-existent domains. Hijacki
 Tests which EDNS buffer sizes a resolver supports. Larger payloads = faster DNS tunnel. Tests 512, 900, and 1232 bytes.
 
 ```bash
-./scanner edns -i resolvers.txt -o result.json --domain t.example.com
+findns edns -i resolvers.txt -o result.json --domain t.example.com
 ```
 
 📊 **Metric:** `edns_max` (largest working payload: 512, 900, or 1232)
@@ -349,7 +350,7 @@ Tests which EDNS buffer sizes a resolver supports. Larger payloads = faster DNS 
 Actually launches `dnstt-client`, creates a SOCKS tunnel, and verifies connectivity with `curl`.
 
 ```bash
-./scanner e2e dnstt -i resolvers.txt -o result.json \
+findns e2e dnstt -i resolvers.txt -o result.json \
   --domain t.example.com --pubkey <hex-pubkey>
 ```
 
@@ -360,7 +361,7 @@ Actually launches `dnstt-client`, creates a SOCKS tunnel, and verifies connectiv
 ### 🚇 `e2e slipstream` — End-to-End Slipstream Test
 
 ```bash
-./scanner e2e slipstream -i resolvers.txt -o result.json \
+findns e2e slipstream -i resolvers.txt -o result.json \
   --domain s.example.com --cert /path/to/cert.pem
 ```
 
@@ -373,7 +374,7 @@ Actually launches `dnstt-client`, creates a SOCKS tunnel, and verifies connectiv
 Test DNS resolution through DoH endpoints (HTTPS POST with `application/dns-message`).
 
 ```bash
-./scanner doh resolve -i doh-resolvers.txt -o result.json --domain google.com
+findns doh resolve -i doh-resolvers.txt -o result.json --domain google.com
 ```
 
 ---
@@ -381,7 +382,7 @@ Test DNS resolution through DoH endpoints (HTTPS POST with `application/dns-mess
 ### 🔒 `doh resolve tunnel` — DoH NS Delegation
 
 ```bash
-./scanner doh resolve tunnel -i doh-resolvers.txt -o result.json --domain t.example.com
+findns doh resolve tunnel -i doh-resolvers.txt -o result.json --domain t.example.com
 ```
 
 ---
@@ -391,7 +392,7 @@ Test DNS resolution through DoH endpoints (HTTPS POST with `application/dns-mess
 Launches `dnstt-client -doh <url>` and verifies tunnel connectivity.
 
 ```bash
-./scanner doh e2e -i doh-resolvers.txt -o result.json \
+findns doh e2e -i doh-resolvers.txt -o result.json \
   --domain t.example.com --pubkey <hex-pubkey>
 ```
 
@@ -402,7 +403,7 @@ Launches `dnstt-client -doh <url>` and verifies tunnel connectivity.
 Run any combination of steps in sequence. Only resolvers that pass each step advance.
 
 ```bash
-./scanner chain -i resolvers.txt -o result.json \
+findns chain -i resolvers.txt -o result.json \
   --step "ping" \
   --step "resolve:domain=google.com" \
   --step "nxdomain" \
@@ -414,7 +415,7 @@ Run any combination of steps in sequence. Only resolvers that pass each step adv
 DoH chain example:
 
 ```bash
-./scanner chain -i doh-resolvers.txt -o result.json \
+findns chain -i doh-resolvers.txt -o result.json \
   --step "doh/resolve:domain=google.com" \
   --step "doh/resolve/tunnel:domain=t.example.com" \
   --step "doh/e2e:domain=t.example.com,pubkey=<key>"
@@ -430,12 +431,16 @@ DoH chain example:
 | `nxdomain` | — | `hijack`, `nxdomain_ok` | NXDOMAIN integrity check |
 | `edns` | `domain` | `edns_max` | EDNS payload size support |
 | `e2e/dnstt` | `domain`, `pubkey` | `e2e_ms` | Real DNSTT tunnel test |
-| `e2e/slipstream` | `domain` | `e2e_ms` | Real Slipstream tunnel test |
+| `e2e/slipstream` | `domain`, `cert` | `e2e_ms` | Real Slipstream tunnel test |
 | `doh/resolve` | `domain` | `resolve_ms` | DoH DNS resolution |
 | `doh/resolve/tunnel` | `domain` | `resolve_ms` | DoH NS delegation |
 | `doh/e2e` | `domain`, `pubkey` | `e2e_ms` | Real DNSTT tunnel via DoH |
 
 Step format: `type:key=val,key=val`. Optional params: `count`, `timeout`.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--port-base` | Base port for e2e SOCKS proxies | `30000` |
 
 ---
 
@@ -448,6 +453,7 @@ Step format: `type:key=val,key=val`. Optional params: `count`, `timeout`.
 | `--timeout` | `-t` | Timeout per attempt (seconds) | 3 |
 | `--count` | `-c` | Attempts per IP/URL | 3 |
 | `--workers` | | Concurrent workers | 50 |
+| `--e2e-timeout` | | Timeout for e2e tests (seconds) | 10 |
 | `--include-failed` | | Also scan failed entries from JSON input | false |
 
 ---
@@ -518,10 +524,10 @@ JSON with structured results:
 
 ```bash
 # 1. Get resolvers
-./scanner fetch -o resolvers.txt --local
+findns fetch -o resolvers.txt --local
 
 # 2. Full scan with e2e
-./scanner scan -i resolvers.txt -o results.json \
+findns scan -i resolvers.txt -o results.json \
   --domain t.mysite.com --pubkey abc123...
 
 # 3. Use the best resolver in your DNSTT client
@@ -532,10 +538,10 @@ dnstt-client -udp <best-ip>:53 -pubkey-file server.pub t.mysite.com 127.0.0.1:10
 
 ```bash
 # 1. Get DoH endpoints
-./scanner fetch -o doh.txt --doh
+findns fetch -o doh.txt --doh
 
 # 2. Scan with DoH e2e
-./scanner scan -i doh.txt -o results.json \
+findns scan -i doh.txt -o results.json \
   --domain t.mysite.com --pubkey abc123... --doh
 
 # 3. Use the best DoH resolver
@@ -546,7 +552,7 @@ dnstt-client -doh <best-url> -pubkey-file server.pub t.mysite.com 127.0.0.1:1080
 
 ```bash
 # Quick filter → deep test
-./scanner chain -i resolvers.txt -o results.json \
+findns chain -i resolvers.txt -o results.json \
   --step "ping:count=1" \
   --step "resolve:domain=google.com,count=1" \
   --step "nxdomain:count=2" \
@@ -659,7 +665,7 @@ MIT
 ```bash
 git clone https://github.com/SamNet-dev/findns.git
 cd findns
-go build -o scanner ./cmd
+go build -o findns ./cmd
 ```
 
 <div dir="rtl">
@@ -696,7 +702,7 @@ chmod +x findns-linux-amd64
 - **slipstream-client** — فقط برای تست e2e Slipstream (`--cert`)
 - **curl** — برای تأیید اتصال e2e
 
-> **مهم:** در لینوکس باید `dnstt-client` را در PATH قرار دهید (مثلاً `/usr/local/bin/`). فقط گذاشتن کنار اسکنر کافی نیست. اجرا کنید: `sudo mv dnstt-client /usr/local/bin/ && sudo chmod +x /usr/local/bin/dnstt-client`
+> **پیدا کردن باینری:** findns به صورت خودکار `dnstt-client` و `slipstream-client` را در سه مسیر جستجو می‌کند: ۱) `PATH` سیستم ۲) پوشه فعلی ۳) کنار فایل findns. ساده‌ترین روش: فایل را کنار findns بگذارید.
 >
 > بدون `--pubkey` هم اسکنر resolverهای سازگار با تانل DNS را پیدا می‌کند (ping, resolve, nxdomain, edns, tunnel delegation بدون نیاز به dnstt-client).
 
@@ -740,7 +746,7 @@ go build -o findns.exe ./cmd
 
 ### اجرا
 
-در تمام دستورات به جای `./scanner` از `.\findns.exe` استفاده کنید:
+در تمام دستورات به جای `findns` از `.\findns.exe` استفاده کنید:
 
 </div>
 
@@ -785,13 +791,13 @@ go build -o findns.exe ./cmd
 
 ```bash
 # 📥 دانلود resolverهای UDP جهانی
-./scanner fetch -o resolvers.txt
+findns fetch -o resolvers.txt
 
 # 🌍 شامل 7,800+ resolver شناخته‌شده ایرانی (بدون اینترنت)
-./scanner fetch -o resolvers.txt --local
+findns fetch -o resolvers.txt --local
 
 # 🔒 دانلود آدرس‌های DoH
-./scanner fetch -o doh-resolvers.txt --doh
+findns fetch -o doh-resolvers.txt --doh
 ```
 
 <div dir="rtl">
@@ -802,18 +808,18 @@ go build -o findns.exe ./cmd
 
 ```bash
 # 🔍 اسکن resolverهای UDP (تمام بررسی‌ها)
-./scanner scan -i resolvers.txt -o results.json --domain t.example.com
+findns scan -i resolvers.txt -o results.json --domain t.example.com
 
 # 🔍 اسکن با تست واقعی تانل DNSTT
-./scanner scan -i resolvers.txt -o results.json \
+findns scan -i resolvers.txt -o results.json \
   --domain t.example.com --pubkey <hex-pubkey>
 
 # 🔒 اسکن resolverهای DoH
-./scanner scan -i doh-resolvers.txt -o results.json \
+findns scan -i doh-resolvers.txt -o results.json \
   --domain t.example.com --doh
 
 # 🔒 اسکن DoH با تست واقعی e2e
-./scanner scan -i doh-resolvers.txt -o results.json \
+findns scan -i doh-resolvers.txt -o results.json \
   --domain t.example.com --pubkey <hex-pubkey> --doh
 ```
 
@@ -852,6 +858,7 @@ go build -o findns.exe ./cmd
 | `--pubkey` | کلید عمومی سرور DNSTT (فعال‌سازی تست e2e) | — |
 | `--cert` | مسیر گواهی Slipstream (فعال‌سازی تست Slipstream) | — |
 | `--test-url` | آدرس برای تست اتصال e2e | `https://httpbin.org/ip` |
+| `--proxy-auth` | احراز هویت پروکسی SOCKS به صورت `user:pass` (برای تست e2e) | — |
 | `--doh` | اسکن DoH به جای UDP | `false` |
 | `--skip-ping` | رد کردن مرحله ping | `false` |
 | `--skip-nxdomain` | رد کردن بررسی هایجک | `false` |
@@ -864,9 +871,9 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner fetch -o resolvers.txt           # resolverهای UDP جهانی
-./scanner fetch -o resolvers.txt --local    # + 7,800+ resolver شناخته‌شده ایرانی
-./scanner fetch -o doh-resolvers.txt --doh # آدرس‌های DoH
+findns fetch -o resolvers.txt           # resolverهای UDP جهانی
+findns fetch -o resolvers.txt --local    # + 7,800+ resolver شناخته‌شده ایرانی
+findns fetch -o doh-resolvers.txt --doh # آدرس‌های DoH
 ```
 
 <div dir="rtl">
@@ -890,25 +897,25 @@ go build -o findns.exe ./cmd
 ```bash
 # حالت 1: resolverهای شناخته‌شده (پیش‌فرض — پیشنهادی)
 # 7,800+ resolver تأیید‌شده — نرخ موفقیت بالا
-./scanner local -o resolvers.txt
+findns local -o resolvers.txt
 
 # حالت 2: کشف resolver جدید (--discover)
 # از رنج‌های CIDR ایرانی (~10.8M آی‌پی) — اکثراً DNS سرور نیستند
-./scanner local -o candidates.txt --discover
+findns local -o candidates.txt --discover
 
 # تنظیم تعداد نمونه در هر subnet
-./scanner local -o candidates.txt --discover --sample 5    # 5 آی‌پی/subnet
-./scanner local -o candidates.txt --discover --sample 50   # 50 آی‌پی/subnet
+findns local -o candidates.txt --discover --sample 5    # 5 آی‌پی/subnet
+findns local -o candidates.txt --discover --sample 50   # 50 آی‌پی/subnet
 
 # اسکن دسته‌ای (بدون تکرار، بدون آی‌پی تکراری)
-./scanner local -o batch1.txt --discover --batch 1000000
-./scanner local -o batch2.txt --discover --batch 1000000 --offset 1000000
+findns local -o batch1.txt --discover --batch 1000000
+findns local -o batch2.txt --discover --batch 1000000 --offset 1000000
 
 # تمام آی‌پی‌ها (هشدار: اسکن روزها طول می‌کشد!)
-./scanner local -o all-iran.txt --discover --full
+findns local -o all-iran.txt --discover --full
 
 # نمایش رنج‌های CIDR
-./scanner local --list-ranges
+findns local --list-ranges
 ```
 
 <div dir="rtl">
@@ -929,8 +936,8 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner ping -i resolvers.txt -o result.json
-./scanner ping -i resolvers.txt -o result.json -c 5 -t 2
+findns ping -i resolvers.txt -o result.json
+findns ping -i resolvers.txt -o result.json -c 5 -t 2
 ```
 
 <div dir="rtl">
@@ -944,7 +951,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner resolve -i resolvers.txt -o result.json --domain google.com
+findns resolve -i resolvers.txt -o result.json --domain google.com
 ```
 
 <div dir="rtl">
@@ -960,7 +967,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner resolve tunnel -i resolvers.txt -o result.json --domain t.example.com
+findns resolve tunnel -i resolvers.txt -o result.json --domain t.example.com
 ```
 
 <div dir="rtl">
@@ -976,7 +983,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner nxdomain -i resolvers.txt -o result.json
+findns nxdomain -i resolvers.txt -o result.json
 ```
 
 <div dir="rtl">
@@ -992,7 +999,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner edns -i resolvers.txt -o result.json --domain t.example.com
+findns edns -i resolvers.txt -o result.json --domain t.example.com
 ```
 
 <div dir="rtl">
@@ -1008,7 +1015,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner e2e dnstt -i resolvers.txt -o result.json \
+findns e2e dnstt -i resolvers.txt -o result.json \
   --domain t.example.com --pubkey <hex-pubkey>
 ```
 
@@ -1023,7 +1030,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner e2e slipstream -i resolvers.txt -o result.json \
+findns e2e slipstream -i resolvers.txt -o result.json \
   --domain s.example.com --cert /path/to/cert.pem
 ```
 
@@ -1040,7 +1047,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner doh resolve -i doh-resolvers.txt -o result.json --domain google.com
+findns doh resolve -i doh-resolvers.txt -o result.json --domain google.com
 ```
 
 <div dir="rtl">
@@ -1052,7 +1059,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner doh resolve tunnel -i doh-resolvers.txt -o result.json --domain t.example.com
+findns doh resolve tunnel -i doh-resolvers.txt -o result.json --domain t.example.com
 ```
 
 <div dir="rtl">
@@ -1066,7 +1073,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner doh e2e -i doh-resolvers.txt -o result.json \
+findns doh e2e -i doh-resolvers.txt -o result.json \
   --domain t.example.com --pubkey <hex-pubkey>
 ```
 
@@ -1081,7 +1088,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner chain -i resolvers.txt -o result.json \
+findns chain -i resolvers.txt -o result.json \
   --step "ping" \
   --step "resolve:domain=google.com" \
   --step "nxdomain" \
@@ -1097,7 +1104,7 @@ go build -o findns.exe ./cmd
 </div>
 
 ```bash
-./scanner chain -i doh-resolvers.txt -o result.json \
+findns chain -i doh-resolvers.txt -o result.json \
   --step "doh/resolve:domain=google.com" \
   --step "doh/resolve/tunnel:domain=t.example.com" \
   --step "doh/e2e:domain=t.example.com,pubkey=<key>"
@@ -1115,12 +1122,16 @@ go build -o findns.exe ./cmd
 | `nxdomain` | — | `hijack`, `nxdomain_ok` | بررسی صحت NXDOMAIN |
 | `edns` | `domain` | `edns_max` | تست سایز payload EDNS |
 | `e2e/dnstt` | `domain`, `pubkey` | `e2e_ms` | تست واقعی تانل DNSTT |
-| `e2e/slipstream` | `domain` | `e2e_ms` | تست واقعی تانل Slipstream |
+| `e2e/slipstream` | `domain`, `cert` | `e2e_ms` | تست واقعی تانل Slipstream |
 | `doh/resolve` | `domain` | `resolve_ms` | resolve از طریق DoH |
 | `doh/resolve/tunnel` | `domain` | `resolve_ms` | NS delegation از طریق DoH |
 | `doh/e2e` | `domain`, `pubkey` | `e2e_ms` | تست واقعی تانل از طریق DoH |
 
 فرمت مراحل: `type:key=val,key=val`. پارامترهای اختیاری: `count`, `timeout`.
+
+| فلگ | توضیح | پیش‌فرض |
+|-----|-------|---------|
+| `--port-base` | پورت شروع برای پروکسی SOCKS تست e2e | `30000` |
 
 ---
 
@@ -1133,6 +1144,7 @@ go build -o findns.exe ./cmd
 | `--timeout` | `-t` | تایم‌اوت هر تلاش (ثانیه) | 3 |
 | `--count` | `-c` | تعداد تلاش برای هر IP/URL | 3 |
 | `--workers` | | تعداد workerهای موازی | 50 |
+| `--e2e-timeout` | | تایم‌اوت تست‌های e2e (ثانیه) | 10 |
 | `--include-failed` | | اسکن IPهای فیل‌شده از ورودی JSON | false |
 
 ---
@@ -1213,10 +1225,10 @@ JSON با نتایج ساختاریافته:
 
 ```bash
 # ۱. دریافت لیست
-./scanner fetch -o resolvers.txt --local
+findns fetch -o resolvers.txt --local
 
 # ۲. اسکن کامل با تست e2e
-./scanner scan -i resolvers.txt -o results.json \
+findns scan -i resolvers.txt -o results.json \
   --domain t.mysite.com --pubkey abc123...
 
 # ۳. استفاده از بهترین resolver
@@ -1231,10 +1243,10 @@ dnstt-client -udp <best-ip>:53 -pubkey-file server.pub t.mysite.com 127.0.0.1:10
 
 ```bash
 # ۱. دریافت لیست DoH
-./scanner fetch -o doh.txt --doh
+findns fetch -o doh.txt --doh
 
 # ۲. اسکن DoH با تست e2e
-./scanner scan -i doh.txt -o results.json \
+findns scan -i doh.txt -o results.json \
   --domain t.mysite.com --pubkey abc123... --doh
 
 # ۳. استفاده از بهترین resolver
@@ -1249,7 +1261,7 @@ dnstt-client -doh <best-url> -pubkey-file server.pub t.mysite.com 127.0.0.1:1080
 
 ```bash
 # فیلتر سریع → تست عمیق
-./scanner chain -i resolvers.txt -o results.json \
+findns chain -i resolvers.txt -o results.json \
   --step "ping:count=1" \
   --step "resolve:domain=google.com,count=1" \
   --step "nxdomain:count=2" \
