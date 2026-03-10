@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -364,7 +365,11 @@ func viewConfig(m Model) string {
 
 		// Show binary status after E2E toggle when enabled
 		if fd.id == fE2E && m.config.E2E {
-			b.WriteString(binaryStatus(strings.TrimSpace(m.configInputs[txtDomain].Value())))
+			domain := strings.TrimSpace(m.configInputs[txtDomain].Value())
+			pubkey := strings.TrimSpace(m.configInputs[txtPubkey].Value())
+			testURL := strings.TrimSpace(m.configInputs[txtTestURL].Value())
+			proxyAuth := strings.TrimSpace(m.configInputs[txtProxyAuth].Value())
+			b.WriteString(binaryStatus(domain, pubkey, testURL, proxyAuth))
 		}
 	}
 
@@ -407,7 +412,17 @@ var nsCache struct {
 	loading bool
 }
 
-func binaryStatus(domain string) string {
+// e2eCache stores the cached preflight e2e check result.
+var e2eCache struct {
+	mu       sync.Mutex
+	key      string // "domain|pubkey" — invalidate if either changes
+	result   scanner.PreflightE2EResult
+	done     bool
+	loading  bool
+	cancel   context.CancelFunc // cancels in-flight preflight when key changes
+}
+
+func binaryStatus(domain, pubkey, testURL, proxyAuth string) string {
 	var b strings.Builder
 	bins := []struct {
 		name string
@@ -417,12 +432,16 @@ func binaryStatus(domain string) string {
 		{"slipstream-client", "slipstream-client"},
 		{"curl", "curl"},
 	}
+	var dnsttBin string
 	for _, bin := range bins {
 		path, err := binutil.Find(bin.bin)
 		if err != nil {
 			b.WriteString(fmt.Sprintf("      %s  %s\n", redStyle.Render("✘"), dimStyle.Render(bin.name+" not found")))
 		} else {
 			b.WriteString(fmt.Sprintf("      %s  %s\n", greenStyle.Render("✔"), dimStyle.Render(bin.name+" → "+path)))
+			if bin.bin == "dnstt-client" {
+				dnsttBin = path
+			}
 		}
 	}
 	// Verify NS delegation if domain is set (non-blocking)
@@ -447,7 +466,6 @@ func binaryStatus(domain string) string {
 			go func(d string) {
 				hosts, ok := scanner.QueryNSMulti(d, 5*time.Second)
 				nsCache.mu.Lock()
-				// Only store if domain hasn't changed while we were querying
 				if nsCache.domain == d {
 					nsCache.hosts = hosts
 					nsCache.ok = ok
@@ -460,6 +478,49 @@ func binaryStatus(domain string) string {
 		} else {
 			nsCache.mu.Unlock()
 			b.WriteString(fmt.Sprintf("      %s  %s\n", dimStyle.Render("…"), dimStyle.Render("Checking NS delegation...")))
+		}
+	}
+	// Preflight e2e tunnel check (non-blocking, parallel)
+	if dnsttBin != "" && domain != "" && pubkey != "" {
+		cacheKey := domain + "|" + pubkey
+		e2eCache.mu.Lock()
+		if e2eCache.key != cacheKey {
+			// Cancel any in-flight preflight for the old key
+			if e2eCache.cancel != nil {
+				e2eCache.cancel()
+				e2eCache.cancel = nil
+			}
+			e2eCache.done = false
+			e2eCache.loading = false
+		}
+		if e2eCache.done {
+			r := e2eCache.result
+			e2eCache.mu.Unlock()
+			if r.OK {
+				b.WriteString(fmt.Sprintf("      %s  %s\n", greenStyle.Render("✔"), dimStyle.Render("Tunnel preflight → connected via "+r.Resolver)))
+			} else {
+				b.WriteString(fmt.Sprintf("      %s  %s\n", redStyle.Render("✘"), redStyle.Render("Tunnel preflight FAILED")))
+			}
+		} else if !e2eCache.loading {
+			e2eCache.loading = true
+			e2eCache.key = cacheKey
+			ctx, cancel := context.WithCancel(context.Background())
+			e2eCache.cancel = cancel
+			e2eCache.mu.Unlock()
+			go func(ctx context.Context, bin, d, pk, tu, pa, key string) {
+				r := scanner.PreflightE2EContext(ctx, bin, d, pk, tu, pa, 20*time.Second)
+				e2eCache.mu.Lock()
+				if e2eCache.key == key {
+					e2eCache.result = r
+					e2eCache.done = true
+					e2eCache.loading = false
+				}
+				e2eCache.mu.Unlock()
+			}(ctx, dnsttBin, domain, pubkey, testURL, proxyAuth, cacheKey)
+			b.WriteString(fmt.Sprintf("      %s  %s\n", dimStyle.Render("…"), dimStyle.Render("Testing tunnel connectivity...")))
+		} else {
+			e2eCache.mu.Unlock()
+			b.WriteString(fmt.Sprintf("      %s  %s\n", dimStyle.Render("…"), dimStyle.Render("Testing tunnel connectivity...")))
 		}
 	}
 	return b.String()

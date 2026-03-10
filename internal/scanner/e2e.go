@@ -398,6 +398,11 @@ type PreflightE2EResult struct {
 // returns an error. This handles blocked resolvers (e.g. Google in Iran) by
 // racing them — whichever resolver is reachable responds first.
 func PreflightE2E(bin, domain, pubkey, testURL, proxyAuth string, timeout time.Duration) PreflightE2EResult {
+	return PreflightE2EContext(context.Background(), bin, domain, pubkey, testURL, proxyAuth, timeout)
+}
+
+// PreflightE2EContext is like PreflightE2E but accepts a parent context for cancellation.
+func PreflightE2EContext(parent context.Context, bin, domain, pubkey, testURL, proxyAuth string, timeout time.Duration) PreflightE2EResult {
 	if testURL == "" {
 		testURL = defaultTestURL
 	}
@@ -406,12 +411,12 @@ func PreflightE2E(bin, domain, pubkey, testURL, proxyAuth string, timeout time.D
 	basePort := 29900
 	results := make(chan PreflightE2EResult, len(preflightResolvers))
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	for i, resolver := range preflightResolvers {
 		go func(res string, port int) {
-			r := preflightSingle(bin, res, domain, pubkey, testURL, proxyAuth, port, timeout)
+			r := preflightSingle(ctx, bin, res, domain, pubkey, testURL, proxyAuth, port, timeout)
 			results <- r
 		}(resolver, basePort+i)
 	}
@@ -441,8 +446,8 @@ func PreflightE2E(bin, domain, pubkey, testURL, proxyAuth string, timeout time.D
 	}
 }
 
-func preflightSingle(bin, resolver, domain, pubkey, testURL, proxyAuth string, port int, timeout time.Duration) PreflightE2EResult {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func preflightSingle(parent context.Context, bin, resolver, domain, pubkey, testURL, proxyAuth string, port int, timeout time.Duration) PreflightE2EResult {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	var stderrBuf bytes.Buffer
