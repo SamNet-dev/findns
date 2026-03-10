@@ -3,10 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/SamNet-dev/findns/internal/binutil"
 	"github.com/SamNet-dev/findns/internal/scanner"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -41,21 +41,21 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 	var dnsttBin, slipstreamBin string
 	needE2E := cfg.Pubkey != "" || cfg.Cert != ""
 	if cfg.Pubkey != "" {
-		bin, err := exec.LookPath("dnstt-client")
+		bin, err := binutil.Find("dnstt-client")
 		if err != nil {
 			return nil, fmt.Errorf("pubkey requires dnstt-client in PATH")
 		}
 		dnsttBin = bin
 	}
 	if cfg.Cert != "" {
-		bin, err := exec.LookPath("slipstream-client")
+		bin, err := binutil.Find("slipstream-client")
 		if err != nil {
 			return nil, fmt.Errorf("cert requires slipstream-client in PATH")
 		}
 		slipstreamBin = bin
 	}
 	if needE2E {
-		if _, err := exec.LookPath("curl"); err != nil {
+		if _, err := binutil.Find("curl"); err != nil {
 			return nil, fmt.Errorf("e2e tests require curl in PATH")
 		}
 	}
@@ -208,6 +208,7 @@ func updateRunning(m Model, msg tea.Msg) (Model, tea.Cmd) {
 		ctx, cancel := context.WithCancel(context.Background())
 		m.scanCancel = cancel
 
+		scanner.ResetE2EDiagnostic()
 		launchScan(ctx, m.ips, m.config, steps, msg.progressCh, msg.doneCh)
 
 		return m, tea.Batch(

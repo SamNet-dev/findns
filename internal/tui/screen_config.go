@@ -2,10 +2,13 @@ package tui
 
 import (
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/SamNet-dev/findns/internal/binutil"
+	"github.com/SamNet-dev/findns/internal/scanner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -361,7 +364,7 @@ func viewConfig(m Model) string {
 
 		// Show binary status after E2E toggle when enabled
 		if fd.id == fE2E && m.config.E2E {
-			b.WriteString(binaryStatus())
+			b.WriteString(binaryStatus(strings.TrimSpace(m.configInputs[txtDomain].Value())))
 		}
 	}
 
@@ -392,7 +395,19 @@ func getToggleValue(m Model, id fieldID) bool {
 	return false
 }
 
-func binaryStatus() string {
+// nsCache stores the cached NS delegation check result to avoid
+// re-querying on every TUI render. The check runs in a goroutine
+// so it never blocks View().
+var nsCache struct {
+	mu      sync.Mutex
+	domain  string
+	hosts   []string
+	ok      bool
+	done    bool
+	loading bool
+}
+
+func binaryStatus(domain string) string {
 	var b strings.Builder
 	bins := []struct {
 		name string
@@ -403,11 +418,48 @@ func binaryStatus() string {
 		{"curl", "curl"},
 	}
 	for _, bin := range bins {
-		path, err := exec.LookPath(bin.bin)
+		path, err := binutil.Find(bin.bin)
 		if err != nil {
 			b.WriteString(fmt.Sprintf("      %s  %s\n", redStyle.Render("✘"), dimStyle.Render(bin.name+" not found")))
 		} else {
 			b.WriteString(fmt.Sprintf("      %s  %s\n", greenStyle.Render("✔"), dimStyle.Render(bin.name+" → "+path)))
+		}
+	}
+	// Verify NS delegation if domain is set (non-blocking)
+	if domain != "" {
+		nsCache.mu.Lock()
+		if nsCache.domain != domain {
+			nsCache.done = false
+			nsCache.loading = false
+		}
+		if nsCache.done {
+			hosts, ok := nsCache.hosts, nsCache.ok
+			nsCache.mu.Unlock()
+			if ok && len(hosts) > 0 {
+				b.WriteString(fmt.Sprintf("      %s  %s\n", greenStyle.Render("✔"), dimStyle.Render("NS delegation → "+hosts[0])))
+			} else {
+				b.WriteString(fmt.Sprintf("      %s  %s\n", redStyle.Render("✘"), redStyle.Render("NS delegation NOT found for "+domain)))
+			}
+		} else if !nsCache.loading {
+			nsCache.loading = true
+			nsCache.domain = domain
+			nsCache.mu.Unlock()
+			go func(d string) {
+				hosts, ok := scanner.QueryNSMulti(d, 5*time.Second)
+				nsCache.mu.Lock()
+				// Only store if domain hasn't changed while we were querying
+				if nsCache.domain == d {
+					nsCache.hosts = hosts
+					nsCache.ok = ok
+					nsCache.done = true
+					nsCache.loading = false
+				}
+				nsCache.mu.Unlock()
+			}(domain)
+			b.WriteString(fmt.Sprintf("      %s  %s\n", dimStyle.Render("…"), dimStyle.Render("Checking NS delegation...")))
+		} else {
+			nsCache.mu.Unlock()
+			b.WriteString(fmt.Sprintf("      %s  %s\n", dimStyle.Render("…"), dimStyle.Render("Checking NS delegation...")))
 		}
 	}
 	return b.String()

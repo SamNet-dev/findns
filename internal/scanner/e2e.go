@@ -1,15 +1,21 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
+
+const defaultTestURL = "https://httpbin.org/ip"
 
 func PortPool(base, count int) chan int {
 	ch := make(chan int, count)
@@ -23,6 +29,43 @@ func execCommandContext(ctx context.Context, name string, args ...string) *exec.
 	return exec.CommandContext(ctx, name, args...)
 }
 
+// e2eDiag stores the first e2e failure diagnostic message so both CLI and
+// TUI can display it. Only the first failure is captured (via sync.Once).
+var e2eDiag struct {
+	mu  sync.Mutex
+	msg string
+}
+
+// E2EDiagnostic returns the first e2e failure diagnostic, or "".
+func E2EDiagnostic() string {
+	e2eDiag.mu.Lock()
+	defer e2eDiag.mu.Unlock()
+	return e2eDiag.msg
+}
+
+// ResetE2EDiagnostic clears the stored diagnostic so a fresh scan starts clean.
+func ResetE2EDiagnostic() {
+	e2eDiag.mu.Lock()
+	e2eDiag.msg = ""
+	e2eDiag.mu.Unlock()
+}
+
+func setDiag(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	e2eDiag.mu.Lock()
+	if e2eDiag.msg == "" {
+		e2eDiag.msg = msg
+	}
+	e2eDiag.mu.Unlock()
+}
+
+func effectiveTestURL(testURL string) string {
+	if testURL == "" {
+		return defaultTestURL
+	}
+	return testURL
+}
+
 // DnsttCheckBin is like DnsttCheck but uses an explicit binary path.
 func DnsttCheckBin(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) CheckFunc {
 	return dnsttCheck(bin, domain, pubkey, testURL, proxyAuth, ports)
@@ -33,6 +76,9 @@ func DnsttCheck(domain, pubkey, testURL string, ports chan int) CheckFunc {
 }
 
 func dnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) CheckFunc {
+	testURL = effectiveTestURL(testURL)
+	var diagOnce atomic.Bool
+
 	return func(ip string, timeout time.Duration) (bool, Metrics) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -46,37 +92,62 @@ func dnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) 
 
 		start := time.Now()
 
+		var stderrBuf bytes.Buffer
 		cmd := execCommandContext(ctx, bin,
 			"-udp", net.JoinHostPort(ip, "53"),
 			"-pubkey", pubkey,
 			domain,
 			fmt.Sprintf("127.0.0.1:%d", port))
 		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			ports <- port
+			if diagOnce.CompareAndSwap(false, true) {
+				setDiag("e2e/dnstt: cannot start %s: %v", bin, err)
+			}
 			return false, nil
 		}
-		// Kill process and wait for cleanup BEFORE returning port
+
+		exited := make(chan struct{})
+		go func() {
+			cmd.Wait()
+			close(exited)
+		}()
+
 		defer func() {
 			cmd.Process.Kill()
-			cmd.Wait()
+			select {
+			case <-exited:
+			case <-time.After(2 * time.Second):
+			}
 			time.Sleep(300 * time.Millisecond)
 			ports <- port
 		}()
 
-		// Wait for subprocess to start, but cap at 1/3 of timeout
-		startupWait := timeout / 3
-		if startupWait > 2*time.Second {
-			startupWait = 2 * time.Second
-		}
-		select {
-		case <-time.After(startupWait):
-		case <-ctx.Done():
-			return false, nil
-		}
-
-		if !testSOCKS(ctx, port, testURL, proxyAuth) {
+		if !waitAndTestSOCKS(ctx, port, testURL, proxyAuth, exited, timeout) {
+			if diagOnce.CompareAndSwap(false, true) {
+				// Check if process exited on its own before we kill it
+				processExitedEarly := false
+				select {
+				case <-exited:
+					processExitedEarly = true
+				default:
+				}
+				// Kill and wait so stderr pipe is fully closed before reading
+				cmd.Process.Kill()
+				select {
+				case <-exited:
+				case <-time.After(2 * time.Second):
+				}
+				stderr := strings.TrimSpace(stderrBuf.String())
+				if stderr != "" {
+					setDiag("e2e/dnstt first failure (ip=%s): dnstt-client stderr: %s", ip, truncate(stderr, 300))
+				} else if processExitedEarly {
+					setDiag("e2e/dnstt first failure (ip=%s): dnstt-client exited early with no stderr", ip)
+				} else {
+					setDiag("e2e/dnstt first failure (ip=%s): curl could not get HTTP 200 through SOCKS within %v (test-url=%s)", ip, timeout, testURL)
+				}
+			}
 			return false, nil
 		}
 		ms := roundMs(float64(time.Since(start).Microseconds()) / 1000.0)
@@ -94,6 +165,9 @@ func SlipstreamCheck(domain, certPath, testURL string, ports chan int) CheckFunc
 }
 
 func slipstreamCheck(bin, domain, certPath, testURL, proxyAuth string, ports chan int) CheckFunc {
+	testURL = effectiveTestURL(testURL)
+	var diagOnce atomic.Bool
+
 	return func(ip string, timeout time.Duration) (bool, Metrics) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -115,33 +189,56 @@ func slipstreamCheck(bin, domain, certPath, testURL, proxyAuth string, ports cha
 		if certPath != "" {
 			args = append(args, "--cert", certPath)
 		}
+		var stderrBuf bytes.Buffer
 		cmd := execCommandContext(ctx, bin, args...)
 		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			ports <- port
+			if diagOnce.CompareAndSwap(false, true) {
+				setDiag("e2e/slipstream: cannot start %s: %v", bin, err)
+			}
 			return false, nil
 		}
-		// Kill process and wait for cleanup BEFORE returning port
+
+		exited := make(chan struct{})
+		go func() {
+			cmd.Wait()
+			close(exited)
+		}()
+
 		defer func() {
 			cmd.Process.Kill()
-			cmd.Wait()
+			select {
+			case <-exited:
+			case <-time.After(2 * time.Second):
+			}
 			time.Sleep(300 * time.Millisecond)
 			ports <- port
 		}()
 
-		// Wait for subprocess to start, but cap at 1/3 of timeout
-		startupWait := timeout / 3
-		if startupWait > 2*time.Second {
-			startupWait = 2 * time.Second
-		}
-		select {
-		case <-time.After(startupWait):
-		case <-ctx.Done():
-			return false, nil
-		}
-
-		if !testSOCKS(ctx, port, testURL, proxyAuth) {
+		if !waitAndTestSOCKS(ctx, port, testURL, proxyAuth, exited, timeout) {
+			if diagOnce.CompareAndSwap(false, true) {
+				processExitedEarly := false
+				select {
+				case <-exited:
+					processExitedEarly = true
+				default:
+				}
+				cmd.Process.Kill()
+				select {
+				case <-exited:
+				case <-time.After(2 * time.Second):
+				}
+				stderr := strings.TrimSpace(stderrBuf.String())
+				if stderr != "" {
+					setDiag("e2e/slipstream first failure (ip=%s): stderr: %s", ip, truncate(stderr, 300))
+				} else if processExitedEarly {
+					setDiag("e2e/slipstream first failure (ip=%s): process exited early with no stderr", ip)
+				} else {
+					setDiag("e2e/slipstream first failure (ip=%s): curl could not get HTTP 200 through SOCKS within %v", ip, timeout)
+				}
+			}
 			return false, nil
 		}
 		ms := roundMs(float64(time.Since(start).Microseconds()) / 1000.0)
@@ -156,9 +253,86 @@ func nullDevice() string {
 	return "/dev/null"
 }
 
-func testSOCKS(ctx context.Context, port int, testURL, proxyAuth string) bool {
+// waitAndTestSOCKS waits for the SOCKS port to accept connections, then
+// retries the HTTP test via curl until it succeeds or the context expires.
+// The exited channel signals that the tunnel process has died early.
+// totalTimeout is used to compute per-attempt curl timeouts so that
+// multiple retries fit within the budget.
+func waitAndTestSOCKS(ctx context.Context, port int, testURL, proxyAuth string, exited <-chan struct{}, totalTimeout time.Duration) bool {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	// Compute per-attempt curl timeout: aim for 3 attempts minimum.
+	// Reserve ~2s for Phase 1, then divide the rest by 3.
+	totalSec := int(totalTimeout.Seconds())
+	curlMaxTime := (totalSec - 2) / 3
+	if curlMaxTime < 3 {
+		curlMaxTime = 3
+	}
+	if curlMaxTime > 8 {
+		curlMaxTime = 8
+	}
+	// Never exceed the total timeout budget
+	if curlMaxTime > totalSec {
+		curlMaxTime = totalSec
+	}
+	// connect-timeout should be less than max-time
+	curlConnTimeout := curlMaxTime - 1
+	if curlConnTimeout < 2 {
+		curlConnTimeout = 2
+	}
+
+	// Phase 1: wait for SOCKS port to start listening (poll every 300ms).
+	// Also bail if the tunnel process dies — no point waiting for a dead process.
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-exited:
+			return false
+		default:
+		}
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-exited:
+			return false
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+
+	// Phase 2: port is open — retry curl until success or timeout.
+	// The port may be listening before the tunnel is fully negotiated, so
+	// the first curl attempt often fails with a SOCKS error.
+	for {
+		select {
+		case <-exited:
+			return false
+		default:
+		}
+		if testSOCKS(ctx, port, testURL, proxyAuth, curlConnTimeout, curlMaxTime) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-exited:
+			return false
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+func testSOCKS(ctx context.Context, port int, testURL, proxyAuth string, connTimeout, maxTime int) bool {
 	args := []string{
 		"-x", fmt.Sprintf("socks5h://127.0.0.1:%d", port),
+		"--connect-timeout", strconv.Itoa(connTimeout),
+		"--max-time", strconv.Itoa(maxTime),
+		"-L", // follow redirects
 		"-s", "-o", nullDevice(), "-w", "%{http_code}",
 	}
 	if proxyAuth != "" {
@@ -170,5 +344,20 @@ func testSOCKS(ctx context.Context, port int, testURL, proxyAuth string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(string(output)) == "200"
+	code := strings.TrimSpace(string(output))
+	// Accept any 2xx status — not just 200
+	if len(code) == 3 && code[0] == '2' {
+		return true
+	}
+	return false
+}
+
+func truncate(s string, maxLen int) string {
+	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
+		s = s[:idx]
+	}
+	if len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+	return s
 }

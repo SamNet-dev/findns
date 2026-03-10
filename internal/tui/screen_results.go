@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/SamNet-dev/findns/internal/scanner"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -80,6 +81,10 @@ func viewResults(m Model) string {
 	if len(m.report.Passed) == 0 {
 		b.WriteString(redStyle.Render("  ✘ No resolvers passed all steps"))
 		b.WriteString("\n")
+		if diag := scanner.E2EDiagnostic(); diag != "" {
+			b.WriteString(yellowStyle.Render("  ⚠ " + diag))
+			b.WriteString("\n")
+		}
 	} else {
 		b.WriteString(greenStyle.Render(fmt.Sprintf("  ✔ %d resolvers passed all steps", len(m.report.Passed))))
 		b.WriteString("\n\n")

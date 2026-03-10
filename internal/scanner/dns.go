@@ -113,6 +113,44 @@ func QueryA(resolver, domain string, timeout time.Duration) bool {
 	return len(r.Answer) > 0
 }
 
+// nsResolvers is the list of public DNS resolvers used for NS delegation checks.
+// Multiple are needed because some may be blocked or unreachable in certain regions.
+var nsResolvers = []string{
+	// Global providers
+	"8.8.8.8",         // Google
+	"1.1.1.1",         // Cloudflare
+	"9.9.9.9",         // Quad9
+	"208.67.222.222",  // OpenDNS
+	"76.76.2.0",       // ControlD
+	"94.140.14.14",    // AdGuard
+	"185.228.168.9",   // CleanBrowsing
+	"76.76.19.19",     // Alternate DNS
+	"149.112.112.112", // Quad9 secondary
+	"8.26.56.26",      // Comodo Secure
+	"156.154.70.1",    // Neustar/UltraDNS
+	// Regional (Middle East / Central Asia)
+	"178.22.122.100",  // Shecan (Iran)
+	"185.51.200.2",    // DNS.sb (anycast, good in ME)
+	"195.175.39.39",   // Turk Telekom (Turkey)
+	"80.80.80.80",     // Freenom/Level3 (Turkey/EU)
+	"217.218.127.127", // TCI (Iran)
+	// Regional (Caucasus / nearby)
+	"85.132.75.12",    // AzOnline (Azerbaijan)
+	"213.42.20.20",    // Etisalat DNS (UAE)
+}
+
+// QueryNSMulti tries multiple public resolvers to verify NS delegation.
+// Returns on the first successful response.
+func QueryNSMulti(domain string, timeout time.Duration) ([]string, bool) {
+	for _, resolver := range nsResolvers {
+		hosts, ok := QueryNS(resolver, domain, timeout)
+		if ok && len(hosts) > 0 {
+			return hosts, true
+		}
+	}
+	return nil, false
+}
+
 func QueryNS(resolver, domain string, timeout time.Duration) ([]string, bool) {
 	r, ok := queryRaw(resolver, domain, dns.TypeNS, timeout)
 	if !ok {

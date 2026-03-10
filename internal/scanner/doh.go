@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
@@ -183,6 +185,9 @@ func DoHDnsttCheck(domain, pubkey, testURL string, ports chan int) CheckFunc {
 }
 
 func dohDnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) CheckFunc {
+	testURL = effectiveTestURL(testURL)
+	var diagOnce atomic.Bool
+
 	return func(url string, timeout time.Duration) (bool, Metrics) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -196,37 +201,60 @@ func dohDnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan in
 
 		start := time.Now()
 
+		var stderrBuf bytes.Buffer
 		cmd := execCommandContext(ctx, bin,
 			"-doh", url,
 			"-pubkey", pubkey,
 			domain,
 			fmt.Sprintf("127.0.0.1:%d", port))
 		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			ports <- port
+			if diagOnce.CompareAndSwap(false, true) {
+				setDiag("doh/e2e: cannot start %s: %v", bin, err)
+			}
 			return false, nil
 		}
-		// Kill process and wait for cleanup BEFORE returning port
+
+		exited := make(chan struct{})
+		go func() {
+			cmd.Wait()
+			close(exited)
+		}()
+
 		defer func() {
 			cmd.Process.Kill()
-			cmd.Wait()
+			select {
+			case <-exited:
+			case <-time.After(2 * time.Second):
+			}
 			time.Sleep(300 * time.Millisecond)
 			ports <- port
 		}()
 
-		// Wait for subprocess to start, but cap at 1/3 of timeout
-		startupWait := timeout / 3
-		if startupWait > 2*time.Second {
-			startupWait = 2 * time.Second
-		}
-		select {
-		case <-time.After(startupWait):
-		case <-ctx.Done():
-			return false, nil
-		}
-
-		if !testSOCKS(ctx, port, testURL, proxyAuth) {
+		if !waitAndTestSOCKS(ctx, port, testURL, proxyAuth, exited, timeout) {
+			if diagOnce.CompareAndSwap(false, true) {
+				processExitedEarly := false
+				select {
+				case <-exited:
+					processExitedEarly = true
+				default:
+				}
+				cmd.Process.Kill()
+				select {
+				case <-exited:
+				case <-time.After(2 * time.Second):
+				}
+				stderr := strings.TrimSpace(stderrBuf.String())
+				if stderr != "" {
+					setDiag("doh/e2e first failure (url=%s): dnstt-client stderr: %s", url, truncate(stderr, 300))
+				} else if processExitedEarly {
+					setDiag("doh/e2e first failure (url=%s): dnstt-client exited early with no stderr", url)
+				} else {
+					setDiag("doh/e2e first failure (url=%s): curl could not get HTTP 200 through SOCKS within %v", url, timeout)
+				}
+			}
 			return false, nil
 		}
 		ms := roundMs(float64(time.Since(start).Microseconds()) / 1000.0)

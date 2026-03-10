@@ -190,6 +190,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
+	scanner.ResetE2EDiagnostic()
 	scanStart := time.Now()
 	report := scanner.RunChainQuietCtx(ctx, ips, workers, steps, newScanProgressFactory(len(steps), stepDescriptions))
 	totalTime := time.Since(scanStart)
@@ -230,9 +231,19 @@ func printPreFlight(ipCount int, domain, dnsttBin, slipstreamBin string, steps [
 		fmt.Fprintf(w, "    %s\u2714%s slipstream-client: %s%s%s\n", colorGreen, colorReset, colorDim, slipstreamBin, colorReset)
 	}
 	if domain != "" {
-		fmt.Fprintf(w, "    %s\u26a0%s Domain: %s%s%s — %sverify NS delegation before scanning%s\n",
-			colorYellow, colorReset, colorCyan, domain, colorReset, colorDim, colorReset)
-		fmt.Fprintf(w, "      %snslookup -type=NS %s 8.8.8.8%s\n", colorDim, domain, colorReset)
+		nsHosts, nsOK := scanner.QueryNSMulti(domain, 5*time.Second)
+		if nsOK && len(nsHosts) > 0 {
+			fmt.Fprintf(w, "    %s\u2714%s Domain: %s%s%s — NS delegation verified\n",
+				colorGreen, colorReset, colorCyan, domain, colorReset)
+			for _, ns := range nsHosts {
+				fmt.Fprintf(w, "        %s%s%s\n", colorDim, ns, colorReset)
+			}
+		} else {
+			fmt.Fprintf(w, "    %s\u2718%s Domain: %s%s%s — %sNS delegation NOT found!%s\n",
+				colorRed, colorReset, colorCyan, domain, colorReset, colorRed, colorReset)
+			fmt.Fprintf(w, "      %sTunnel/e2e steps will likely fail. Verify your DNS setup:%s\n", colorDim, colorReset)
+			fmt.Fprintf(w, "      %snslookup -type=NS %s 8.8.8.8%s\n", colorDim, domain, colorReset)
+		}
 	}
 	fmt.Fprintf(w, "\n")
 }
@@ -334,6 +345,9 @@ func printSummary(report scanner.ChainReport, topN int, totalTime time.Duration,
 					fmt.Fprintf(w, "\n  %s\u26a0 Hint: ping had 0%% pass rate. Try --skip-ping (ICMP may be blocked).%s\n", colorYellow, colorReset)
 				case "e2e/dnstt", "e2e/slipstream", "doh/e2e":
 					fmt.Fprintf(w, "\n  %s\u26a0 Hint: e2e had 0%% pass rate. Make sure your tunnel server is running.%s\n", colorYellow, colorReset)
+					if diag := scanner.E2EDiagnostic(); diag != "" {
+						fmt.Fprintf(w, "  %s  Diagnostic: %s%s\n", colorDim, diag, colorReset)
+					}
 				}
 				break // Only show hint for the first failing step
 			}
