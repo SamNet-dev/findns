@@ -145,6 +145,12 @@ func parseCLIFlags(m *Model, raw string) {
 			m.config.SkipNXDomain = true
 		case "--edns":
 			m.config.EDNS = true
+		case "--edns-size":
+			if next != "" {
+				fmt.Sscanf(next, "%d", &m.config.EDNSSize)
+				m.configInputs[txtEDNSSize].SetValue(next)
+				i++
+			}
 		case "--e2e":
 			m.config.E2E = true
 		case "--doh":

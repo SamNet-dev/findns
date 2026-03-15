@@ -117,7 +117,9 @@ func viewResults(m Model) string {
 			r := m.report.Passed[i]
 			row := fmt.Sprintf("  %-4d %-17s", i+1, r.IP)
 			for _, k := range metricKeys {
-				if v, ok := r.Metrics[k]; ok {
+				if r.Metrics == nil {
+					row += fmt.Sprintf("  %-12s", "-")
+				} else if v, ok := r.Metrics[k]; ok {
 					row += fmt.Sprintf("  %-12s", formatMetric(v))
 				} else {
 					row += fmt.Sprintf("  %-12s", "-")
