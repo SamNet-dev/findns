@@ -84,7 +84,6 @@ jobs:
 
   build-slipstream-windows:
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - name: Checkout slipstream-rust
         uses: actions/checkout@v4
@@ -99,11 +98,18 @@ jobs:
       - name: Install cmake
         run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
-      - name: Build
+      - name: Pre-build picoquic with bash
         shell: bash
         working-directory: slipstream-rust
         env:
-          PICOQUIC_AUTO_BUILD: '1'
+          PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
+        run: bash scripts/build_picoquic.sh
+
+      - name: Build slipstream-client
+        shell: bash
+        working-directory: slipstream-rust
+        env:
+          PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
         run: |
           cargo build --release -p slipstream-client --features slipstream-ffi/openssl-vendored
           cp target/release/slipstream-client.exe ../slipstream-client-windows-amd64.exe
@@ -115,7 +121,7 @@ jobs:
           path: slipstream-client-windows-amd64.exe
 
   release:
-    needs: [build, build-slipstream-linux]
+    needs: [build, build-slipstream-linux, build-slipstream-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
