@@ -94,29 +94,34 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
 
       - name: Install deps
         run: |
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
           choco install pkgconfiglite -y
+          choco install mingw -y
 
-      - name: Pre-build picoquic with bash
+      - name: Pre-build picoquic with bash (MinGW)
         shell: bash
         working-directory: slipstream-rust
         env:
           PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
-          OPENSSL_ROOT_DIR: C:/Program Files/OpenSSL
-        run: bash scripts/build_picoquic.sh
+          CMAKE_GENERATOR: MinGW Makefiles
+        run: |
+          export PATH="/c/Program Files/Git/usr/bin:$PATH"
+          bash scripts/build_picoquic.sh
 
       - name: Build slipstream-client
         shell: bash
         working-directory: slipstream-rust
         env:
           PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
-          OPENSSL_ROOT_DIR: C:/Program Files/OpenSSL
         run: |
-          cargo build --release -p slipstream-client --features slipstream-ffi/openssl-vendored
-          cp target/release/slipstream-client.exe ../slipstream-client-windows-amd64.exe
+          export PATH="/c/Program Files/Git/usr/bin:$PATH"
+          cargo build --release -p slipstream-client --target x86_64-pc-windows-gnu --features slipstream-ffi/openssl-vendored
+          cp target/x86_64-pc-windows-gnu/release/slipstream-client.exe ../slipstream-client-windows-amd64.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
