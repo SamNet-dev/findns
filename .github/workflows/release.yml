@@ -50,18 +50,8 @@ jobs:
           name: findns-${{ matrix.suffix }}
           path: findns-${{ matrix.suffix }}
 
-  build-slipstream:
+  build-slipstream-linux:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            suffix: slipstream-client-linux-amd64
-            deps: libssl-dev
-          - target: x86_64-pc-windows-gnu
-            suffix: slipstream-client-windows-amd64.exe
-            deps: gcc-mingw-w64-x86-64
-
     steps:
       - name: Checkout slipstream-rust
         uses: actions/checkout@v4
@@ -72,35 +62,55 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
-      - name: Install cross-compile deps
+      - name: Install deps
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y cmake ${{ matrix.deps }}
+          sudo apt-get install -y cmake libssl-dev
 
-      - name: Build slipstream-client
+      - name: Build
         working-directory: slipstream-rust
         env:
           PICOQUIC_AUTO_BUILD: '1'
-          OPENSSL_STATIC: '1'
-          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
-          PKG_CONFIG_ALLOW_CROSS: '1'
         run: |
-          cargo build --release --target ${{ matrix.target }} -p slipstream-client --features slipstream-ffi/openssl-vendored
-          BIN=target/${{ matrix.target }}/release/slipstream-client
-          [ -f "${BIN}.exe" ] && BIN="${BIN}.exe"
-          cp "$BIN" ../${{ matrix.suffix }}
+          cargo build --release -p slipstream-client --features slipstream-ffi/openssl-vendored
+          cp target/release/slipstream-client ../slipstream-client-linux-amd64
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.suffix }}
-          path: ${{ matrix.suffix }}
+          name: slipstream-client-linux-amd64
+          path: slipstream-client-linux-amd64
+
+  build-slipstream-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout slipstream-rust
+        uses: actions/checkout@v4
+        with:
+          repository: Mygod/slipstream-rust
+          path: slipstream-rust
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        working-directory: slipstream-rust
+        env:
+          PICOQUIC_AUTO_BUILD: '1'
+        run: |
+          cargo build --release -p slipstream-client --features slipstream-ffi/openssl-vendored
+          copy target\release\slipstream-client.exe ..\slipstream-client-windows-amd64.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slipstream-client-windows-amd64.exe
+          path: slipstream-client-windows-amd64.exe
 
   release:
-    needs: [build, build-slipstream]
+    needs: [build, build-slipstream-linux, build-slipstream-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
