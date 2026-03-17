@@ -98,21 +98,11 @@ jobs:
           targets: x86_64-pc-windows-gnu
 
       - name: Install deps
-        run: |
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          choco install pkgconfiglite -y
-          choco install mingw -y
-
-      - name: Find OpenSSL
-        id: openssl
         shell: bash
         run: |
-          for d in "C:/Program Files/OpenSSL-Win64" "C:/Program Files/OpenSSL" "C:/OpenSSL-Win64" "C:/OpenSSL"; do
-            if [ -f "$d/lib/libssl.a" ] || [ -f "$d/lib/ssl.lib" ] || [ -d "$d/include/openssl" ]; then
-              echo "root=$d" >> $GITHUB_OUTPUT
-              break
-            fi
-          done
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          # Install MinGW-native OpenSSL via MSYS2 (provides libcrypto.a / libssl.a for MinGW)
+          C:/msys64/usr/bin/pacman -S --noconfirm mingw-w64-x86_64-openssl mingw-w64-x86_64-pkg-config
 
       - name: Pre-build picoquic with bash (MinGW)
         shell: bash
@@ -120,9 +110,9 @@ jobs:
         env:
           PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
           CMAKE_GENERATOR: MinGW Makefiles
-          OPENSSL_ROOT_DIR: ${{ steps.openssl.outputs.root }}
+          OPENSSL_ROOT_DIR: C:/msys64/mingw64
         run: |
-          export PATH="/c/mingw64/bin:/c/Program Files/Git/usr/bin:$PATH"
+          export PATH="/c/msys64/mingw64/bin:/c/mingw64/bin:$PATH"
           bash scripts/build_picoquic.sh
 
       - name: Build slipstream-client
@@ -130,9 +120,9 @@ jobs:
         working-directory: slipstream-rust
         env:
           PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
-          OPENSSL_ROOT_DIR: ${{ steps.openssl.outputs.root }}
+          OPENSSL_ROOT_DIR: C:/msys64/mingw64
         run: |
-          export PATH="/c/mingw64/bin:/c/Program Files/Git/usr/bin:$PATH"
+          export PATH="/c/msys64/mingw64/bin:/c/mingw64/bin:$PATH"
           cargo build --release -p slipstream-client --target x86_64-pc-windows-gnu --features slipstream-ffi/openssl-vendored
           cp target/x86_64-pc-windows-gnu/release/slipstream-client.exe ../slipstream-client-windows-amd64.exe
 
