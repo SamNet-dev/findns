@@ -104,15 +104,18 @@ jobs:
           # Install MinGW-native OpenSSL via MSYS2 (provides libcrypto.a / libssl.a for MinGW)
           C:/msys64/usr/bin/pacman -S --noconfirm mingw-w64-x86_64-openssl mingw-w64-x86_64-pkg-config
 
-      - name: Pre-build picoquic with bash (MinGW)
+      - name: Pre-build picoquic with bash (MSYS2 MinGW)
         shell: bash
         working-directory: slipstream-rust
         env:
           PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
           CMAKE_GENERATOR: MinGW Makefiles
           OPENSSL_ROOT_DIR: C:/msys64/mingw64
+          CC: C:/msys64/mingw64/bin/gcc.exe
+          CXX: C:/msys64/mingw64/bin/g++.exe
+          AR: C:/msys64/mingw64/bin/ar.exe
         run: |
-          export PATH="/c/msys64/mingw64/bin:/c/mingw64/bin:$PATH"
+          export PATH="/c/msys64/mingw64/bin:$PATH"
           bash scripts/build_picoquic.sh
 
       - name: Build slipstream-client
@@ -121,8 +124,12 @@ jobs:
         env:
           PICOQUIC_BUILD_DIR: ${{ github.workspace }}/slipstream-rust/.picoquic-build
           OPENSSL_ROOT_DIR: C:/msys64/mingw64
+          CC: C:/msys64/mingw64/bin/gcc.exe
+          CXX: C:/msys64/mingw64/bin/g++.exe
+          AR: C:/msys64/mingw64/bin/ar.exe
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: C:/msys64/mingw64/bin/gcc.exe
         run: |
-          export PATH="/c/msys64/mingw64/bin:/c/mingw64/bin:$PATH"
+          export PATH="/c/msys64/mingw64/bin:$PATH"
           cargo build --release -p slipstream-client --target x86_64-pc-windows-gnu --features slipstream-ffi/openssl-vendored
           cp target/x86_64-pc-windows-gnu/release/slipstream-client.exe ../slipstream-client-windows-amd64.exe
 
