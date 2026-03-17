@@ -97,18 +97,6 @@ func parseCLIFlags(m *Model, raw string) {
 				m.config.E2E = true
 				i++
 			}
-		case "--test-url":
-			if next != "" {
-				m.config.TestURL = next
-				m.configInputs[txtTestURL].SetValue(next)
-				i++
-			}
-		case "--proxy-auth":
-			if next != "" {
-				m.config.ProxyAuth = next
-				m.configInputs[txtProxyAuth].SetValue(next)
-				i++
-			}
 		case "--output", "-o":
 			if next != "" {
 				m.config.OutputFile = next

@@ -20,8 +20,6 @@ var e2eDnsttCmd = &cobra.Command{
 func init() {
 	e2eDnsttCmd.Flags().String("domain", "", "DNSTT tunnel domain")
 	e2eDnsttCmd.Flags().String("pubkey", "", "DNSTT server public key")
-	e2eDnsttCmd.Flags().String("test-url", "http://httpbin.org/ip", "URL to fetch through tunnel")
-	e2eDnsttCmd.Flags().String("proxy-auth", "", "SOCKS proxy auth as user:pass")
 	e2eDnsttCmd.MarkFlagRequired("domain")
 	e2eDnsttCmd.MarkFlagRequired("pubkey")
 	e2eCmd.AddCommand(e2eDnsttCmd)
@@ -30,9 +28,6 @@ func init() {
 func runE2EDnstt(cmd *cobra.Command, args []string) error {
 	domain, _ := cmd.Flags().GetString("domain")
 	pubkey, _ := cmd.Flags().GetString("pubkey")
-	testURL, _ := cmd.Flags().GetString("test-url")
-	proxyAuth, _ := cmd.Flags().GetString("proxy-auth")
-
 	bin, err := findBinary("dnstt-client")
 	if err != nil {
 		return err
@@ -45,7 +40,7 @@ func runE2EDnstt(cmd *cobra.Command, args []string) error {
 
 	dur := time.Duration(e2eTimeout) * time.Second
 	ports := scanner.PortPool(30000, workers)
-	check := scanner.DnsttCheckBin(bin, domain, pubkey, testURL, proxyAuth, ports)
+	check := scanner.DnsttCheckBin(bin, domain, pubkey, ports)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

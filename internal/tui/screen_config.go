@@ -17,8 +17,6 @@ const (
 	txtDomain = iota
 	txtPubkey
 	txtCert
-	txtTestURL
-	txtProxyAuth
 	txtOutput
 	txtWorkers
 	txtTimeout
@@ -46,8 +44,6 @@ const (
 	fE2E       // toggle: enables/disables e2e section
 	fPubkey    // e2e fields below
 	fCert
-	fTestURL
-	fProxyAuth
 	fE2ETimeout
 	fStart
 )
@@ -76,15 +72,13 @@ var allFields = []fieldDef{
 	{fE2E, "E2E Testing", "E2E (end-to-end tunnel test)", "Enable end-to-end tunnel tests. Requires tunnel client binaries.", -1},
 	{fPubkey, "Pubkey", "", "Hex public key for dnstt. Requires dnstt-client in PATH.", txtPubkey},
 	{fCert, "Cert", "", "Path to slipstream TLS cert. Requires slipstream-client in PATH.", txtCert},
-	{fTestURL, "Test URL", "", "URL to fetch through the tunnel. Default: http://httpbin.org/ip", txtTestURL},
-	{fProxyAuth, "Proxy Auth", "", "SOCKS proxy credentials (user:pass) for e2e tunnel tests.", txtProxyAuth},
 	{fE2ETimeout, "E2E Timeout (s)", "", "Seconds to wait for each e2e tunnel connectivity test.", txtE2ETimeout},
 	{fStart, "Start Scan", "", "Run the scan with the settings above.", -1},
 }
 
 // e2eSubFields are only shown when E2E toggle is on.
 var e2eSubFields = map[fieldID]bool{
-	fPubkey: true, fCert: true, fTestURL: true, fProxyAuth: true, fE2ETimeout: true,
+	fPubkey: true, fCert: true, fE2ETimeout: true,
 }
 
 // visibleFields returns the currently visible field list based on config state.
@@ -117,14 +111,6 @@ func initConfigInputs() []textinput.Model {
 	inputs[txtCert] = textinput.New()
 	inputs[txtCert].Placeholder = "cert path"
 	inputs[txtCert].CharLimit = 512
-
-	inputs[txtTestURL] = textinput.New()
-	inputs[txtTestURL].Placeholder = "http://httpbin.org/ip"
-	inputs[txtTestURL].CharLimit = 512
-
-	inputs[txtProxyAuth] = textinput.New()
-	inputs[txtProxyAuth].Placeholder = "user:pass"
-	inputs[txtProxyAuth].CharLimit = 256
 
 	inputs[txtOutput] = textinput.New()
 	inputs[txtOutput].Placeholder = "results.json"
@@ -283,8 +269,6 @@ func applyConfig(m Model) (Model, tea.Cmd) {
 	m.config.Domain = strings.TrimSpace(m.configInputs[txtDomain].Value())
 	m.config.Pubkey = strings.TrimSpace(m.configInputs[txtPubkey].Value())
 	m.config.Cert = strings.TrimSpace(m.configInputs[txtCert].Value())
-	m.config.TestURL = strings.TrimSpace(m.configInputs[txtTestURL].Value())
-	m.config.ProxyAuth = strings.TrimSpace(m.configInputs[txtProxyAuth].Value())
 	m.config.OutputFile = strings.TrimSpace(m.configInputs[txtOutput].Value())
 
 	if v, err := strconv.Atoi(m.configInputs[txtWorkers].Value()); err == nil && v > 0 {
@@ -310,12 +294,8 @@ func applyConfig(m Model) (Model, tea.Cmd) {
 	if !m.config.E2E {
 		m.config.Pubkey = ""
 		m.config.Cert = ""
-		m.config.TestURL = ""
-		m.config.ProxyAuth = ""
 		m.configInputs[txtPubkey].SetValue("")
 		m.configInputs[txtCert].SetValue("")
-		m.configInputs[txtTestURL].SetValue("")
-		m.configInputs[txtProxyAuth].SetValue("")
 	}
 
 	if m.config.OutputFile == "" {
@@ -426,7 +406,6 @@ func binaryStatus() string {
 		bin  string
 	}{
 		{"dnstt-client", "dnstt-client"},
-		{"curl", "curl"},
 	}
 	// slipstream-client only available on Linux/macOS
 	if runtime.GOOS != "windows" {

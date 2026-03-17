@@ -54,12 +54,6 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 		}
 		slipstreamBin = bin
 	}
-	if needE2E {
-		if _, err := binutil.Find("curl"); err != nil {
-			return nil, fmt.Errorf("e2e tests require curl in PATH")
-		}
-	}
-
 	var ports chan int
 	if needE2E {
 		ports = scanner.PortPool(30000, cfg.Workers)
@@ -83,7 +77,7 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 		if cfg.Domain != "" && cfg.Pubkey != "" {
 			steps = append(steps, scanner.Step{
 				Name: "doh/e2e", Timeout: e2eDur,
-				Check: scanner.DoHDnsttCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, cfg.TestURL, cfg.ProxyAuth, ports), SortBy: "e2e_ms",
+				Check: scanner.DoHDnsttCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports), SortBy: "e2e_ms",
 			})
 		}
 	} else {
@@ -130,7 +124,7 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 		if cfg.Domain != "" && cfg.Cert != "" {
 			steps = append(steps, scanner.Step{
 				Name: "e2e/slipstream", Timeout: e2eDur,
-				Check: scanner.SlipstreamCheckBin(slipstreamBin, cfg.Domain, cfg.Cert, cfg.TestURL, cfg.ProxyAuth, ports), SortBy: "e2e_ms",
+				Check: scanner.SlipstreamCheckBin(slipstreamBin, cfg.Domain, cfg.Cert, ports), SortBy: "e2e_ms",
 			})
 		}
 	}

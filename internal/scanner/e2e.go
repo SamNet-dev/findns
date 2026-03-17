@@ -7,15 +7,12 @@ import (
 	"io"
 	"net"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
-
-const defaultTestURL = "http://httpbin.org/ip"
 
 // DnsttMTU caps the upstream DNS query payload size (dnstt-client -mtu flag).
 // 0 means use dnstt-client's default (maximum capacity).
@@ -63,23 +60,16 @@ func setDiag(format string, args ...interface{}) {
 	e2eDiag.mu.Unlock()
 }
 
-func effectiveTestURL(testURL string) string {
-	if testURL == "" {
-		return defaultTestURL
-	}
-	return testURL
+// DnsttCheckBin verifies the dnstt Noise handshake completes through a resolver.
+func DnsttCheckBin(bin, domain, pubkey string, ports chan int) CheckFunc {
+	return dnsttCheck(bin, domain, pubkey, ports)
 }
 
-// DnsttCheckBin is like DnsttCheck but uses an explicit binary path.
-func DnsttCheckBin(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) CheckFunc {
-	return dnsttCheck(bin, domain, pubkey, testURL, proxyAuth, ports)
+func DnsttCheck(domain, pubkey string, ports chan int) CheckFunc {
+	return dnsttCheck("dnstt-client", domain, pubkey, ports)
 }
 
-func DnsttCheck(domain, pubkey, testURL string, ports chan int) CheckFunc {
-	return dnsttCheck("dnstt-client", domain, pubkey, testURL, "", ports)
-}
-
-func dnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) CheckFunc {
+func dnsttCheck(bin, domain, pubkey string, ports chan int) CheckFunc {
 	var diagOnce atomic.Bool
 
 	return func(ip string, timeout time.Duration) (bool, Metrics) {
@@ -222,16 +212,15 @@ func waitAndTestSOCKS5Auth(ctx context.Context, port int, exited <-chan struct{}
 }
 
 // SlipstreamCheckBin is like SlipstreamCheck but uses an explicit binary path.
-func SlipstreamCheckBin(bin, domain, certPath, testURL, proxyAuth string, ports chan int) CheckFunc {
-	return slipstreamCheck(bin, domain, certPath, testURL, proxyAuth, ports)
+func SlipstreamCheckBin(bin, domain, certPath string, ports chan int) CheckFunc {
+	return slipstreamCheck(bin, domain, certPath, ports)
 }
 
-func SlipstreamCheck(domain, certPath, testURL string, ports chan int) CheckFunc {
-	return slipstreamCheck("slipstream-client", domain, certPath, testURL, "", ports)
+func SlipstreamCheck(domain, certPath string, ports chan int) CheckFunc {
+	return slipstreamCheck("slipstream-client", domain, certPath, ports)
 }
 
-func slipstreamCheck(bin, domain, certPath, testURL, proxyAuth string, ports chan int) CheckFunc {
-	testURL = effectiveTestURL(testURL)
+func slipstreamCheck(bin, domain, certPath string, ports chan int) CheckFunc {
 	var diagOnce atomic.Bool
 
 	return func(ip string, timeout time.Duration) (bool, Metrics) {
@@ -283,7 +272,7 @@ func slipstreamCheck(bin, domain, certPath, testURL, proxyAuth string, ports cha
 			ports <- port
 		}()
 
-		if !waitAndTestSOCKS(ctx, port, testURL, proxyAuth, exited, timeout) {
+		if !waitAndTestSOCKS5Auth(ctx, port, exited) {
 			if diagOnce.CompareAndSwap(false, true) {
 				processExitedEarly := false
 				select {
@@ -413,108 +402,6 @@ func DnsttSOCKSCheckBin(bin, domain, pubkey string, ports chan int) CheckFunc {
 			}
 		}
 	}
-}
-
-func nullDevice() string {
-	if runtime.GOOS == "windows" {
-		return "NUL"
-	}
-	return "/dev/null"
-}
-
-// waitAndTestSOCKS waits for the SOCKS port to accept connections, then
-// retries the HTTP test via curl until it succeeds or the context expires.
-// The exited channel signals that the tunnel process has died early.
-// totalTimeout is used to compute per-attempt curl timeouts so that
-// multiple retries fit within the budget.
-func waitAndTestSOCKS(ctx context.Context, port int, testURL, proxyAuth string, exited <-chan struct{}, totalTimeout time.Duration) bool {
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-	// Compute per-attempt curl timeout. DNS tunnels are slow — give each
-	// attempt generous time. Aim for 2 attempts; reserve ~3s for Phase 1.
-	totalSec := int(totalTimeout.Seconds())
-	curlMaxTime := (totalSec - 3) / 2
-	if curlMaxTime < 5 {
-		curlMaxTime = 5
-	}
-	if curlMaxTime > totalSec-2 {
-		curlMaxTime = totalSec - 2
-	}
-	// connect-timeout should be less than max-time
-	curlConnTimeout := curlMaxTime - 2
-	if curlConnTimeout < 3 {
-		curlConnTimeout = 3
-	}
-
-	// Phase 1: wait for SOCKS port to start listening (poll every 300ms).
-	// Also bail if the tunnel process dies — no point waiting for a dead process.
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-exited:
-			return false
-		default:
-		}
-		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-exited:
-			return false
-		case <-time.After(300 * time.Millisecond):
-		}
-	}
-
-	// Phase 2: port is open — retry curl until success or timeout.
-	// The port may be listening before the tunnel is fully negotiated, so
-	// the first curl attempt often fails with a SOCKS error.
-	for {
-		select {
-		case <-exited:
-			return false
-		default:
-		}
-		if testSOCKS(ctx, port, testURL, proxyAuth, curlConnTimeout, curlMaxTime) {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-exited:
-			return false
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-}
-
-func testSOCKS(ctx context.Context, port int, testURL, proxyAuth string, connTimeout, maxTime int) bool {
-	args := []string{
-		"-x", fmt.Sprintf("socks5h://127.0.0.1:%d", port),
-		"--connect-timeout", strconv.Itoa(connTimeout),
-		"--max-time", strconv.Itoa(maxTime),
-		"-L", // follow redirects
-		"-s", "-o", nullDevice(), "-w", "%{http_code}",
-	}
-	if proxyAuth != "" {
-		args = append(args, "--proxy-user", proxyAuth)
-	}
-	args = append(args, testURL)
-	cmd := execCommandContext(ctx, "curl", args...)
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	code := strings.TrimSpace(string(output))
-	// Accept any 2xx status — not just 200
-	if len(code) == 3 && code[0] == '2' {
-		return true
-	}
-	return false
 }
 
 func truncate(s string, maxLen int) string {

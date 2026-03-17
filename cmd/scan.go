@@ -59,8 +59,6 @@ func init() {
 	scanCmd.Flags().String("domain", "", "tunnel domain (required for tunnel/edns/e2e steps)")
 	scanCmd.Flags().String("pubkey", "", "DNSTT public key (enables e2e test)")
 	scanCmd.Flags().String("cert", "", "Slipstream cert path (enables slipstream e2e test)")
-	scanCmd.Flags().String("test-url", "http://httpbin.org/ip", "URL to test through tunnel")
-	scanCmd.Flags().String("proxy-auth", "", "SOCKS proxy auth as user:pass (for e2e tests)")
 	scanCmd.Flags().Bool("doh", false, "scan DoH resolvers instead of UDP")
 	scanCmd.Flags().Bool("skip-ping", false, "skip ICMP ping step")
 	scanCmd.Flags().Bool("skip-nxdomain", false, "skip NXDOMAIN hijack check")
@@ -78,8 +76,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 	domain, _ := cmd.Flags().GetString("domain")
 	pubkey, _ := cmd.Flags().GetString("pubkey")
 	certPath, _ := cmd.Flags().GetString("cert")
-	testURL, _ := cmd.Flags().GetString("test-url")
-	proxyAuth, _ := cmd.Flags().GetString("proxy-auth")
 	dohMode, _ := cmd.Flags().GetBool("doh")
 	skipPing, _ := cmd.Flags().GetBool("skip-ping")
 	skipNXD, _ := cmd.Flags().GetBool("skip-nxdomain")
@@ -176,12 +172,6 @@ outputIPs, _ := cmd.Flags().GetString("output-ips")
 		}
 		slipstreamBin = bin
 	}
-	if pubkey != "" || certPath != "" {
-		if _, err := findBinary("curl"); err != nil {
-			return fmt.Errorf("e2e tests require curl in PATH (not found)")
-		}
-	}
-
 	dur := time.Duration(timeout) * time.Second
 	needE2E := pubkey != "" || certPath != ""
 	var ports chan int
@@ -210,7 +200,7 @@ outputIPs, _ := cmd.Flags().GetString("output-ips")
 		if domain != "" && pubkey != "" {
 			steps = append(steps, scanner.Step{
 				Name: "doh/e2e", Timeout: time.Duration(e2eTimeout) * time.Second,
-				Check: scanner.DoHDnsttCheckBin(dnsttBin, domain, pubkey, testURL, proxyAuth, ports), SortBy: "e2e_ms",
+				Check: scanner.DoHDnsttCheckBin(dnsttBin, domain, pubkey, ports), SortBy: "e2e_ms",
 			})
 		}
 	} else {
@@ -259,7 +249,7 @@ outputIPs, _ := cmd.Flags().GetString("output-ips")
 		if domain != "" && certPath != "" {
 			steps = append(steps, scanner.Step{
 				Name: "e2e/slipstream", Timeout: time.Duration(e2eTimeout) * time.Second,
-				Check: scanner.SlipstreamCheckBin(slipstreamBin, domain, certPath, testURL, proxyAuth, ports), SortBy: "e2e_ms",
+				Check: scanner.SlipstreamCheckBin(slipstreamBin, domain, certPath, ports), SortBy: "e2e_ms",
 			})
 		}
 	}

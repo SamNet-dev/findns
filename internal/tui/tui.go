@@ -24,8 +24,6 @@ type ScanConfig struct {
 	Domain       string
 	Pubkey       string
 	Cert         string
-	TestURL      string
-	ProxyAuth    string
 	Workers      int
 	Timeout      int
 	Count        int
@@ -112,12 +110,6 @@ func NewModelWithConfig(cfg ScanConfig) Model {
 	}
 	if cfg.Cert != "" {
 		inputs[txtCert].SetValue(cfg.Cert)
-	}
-	if cfg.TestURL != "" {
-		inputs[txtTestURL].SetValue(cfg.TestURL)
-	}
-	if cfg.ProxyAuth != "" {
-		inputs[txtProxyAuth].SetValue(cfg.ProxyAuth)
 	}
 	if cfg.OutputFile != "" {
 		inputs[txtOutput].SetValue(cfg.OutputFile)

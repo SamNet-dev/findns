@@ -20,8 +20,6 @@ var e2eSlipstreamCmd = &cobra.Command{
 func init() {
 	e2eSlipstreamCmd.Flags().String("domain", "", "Slipstream tunnel domain")
 	e2eSlipstreamCmd.Flags().String("cert", "", "path to Slipstream certificate for cert pinning (optional)")
-	e2eSlipstreamCmd.Flags().String("test-url", "http://httpbin.org/ip", "URL to fetch through tunnel")
-	e2eSlipstreamCmd.Flags().String("proxy-auth", "", "SOCKS proxy auth as user:pass")
 	e2eSlipstreamCmd.MarkFlagRequired("domain")
 	e2eCmd.AddCommand(e2eSlipstreamCmd)
 }
@@ -29,9 +27,6 @@ func init() {
 func runE2ESlipstream(cmd *cobra.Command, args []string) error {
 	domain, _ := cmd.Flags().GetString("domain")
 	certPath, _ := cmd.Flags().GetString("cert")
-	testURL, _ := cmd.Flags().GetString("test-url")
-	proxyAuth, _ := cmd.Flags().GetString("proxy-auth")
-
 	bin, err := findBinary("slipstream-client")
 	if err != nil {
 		return err
@@ -44,7 +39,7 @@ func runE2ESlipstream(cmd *cobra.Command, args []string) error {
 
 	dur := time.Duration(e2eTimeout) * time.Second
 	ports := scanner.PortPool(30000, workers)
-	check := scanner.SlipstreamCheckBin(bin, domain, certPath, testURL, proxyAuth, ports)
+	check := scanner.SlipstreamCheckBin(bin, domain, certPath, ports)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

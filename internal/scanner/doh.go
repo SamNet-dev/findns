@@ -176,17 +176,16 @@ func DoHTunnelCheck(domain string, count int) CheckFunc {
 }
 
 // DoHDnsttCheckBin is like DoHDnsttCheck but uses an explicit binary path.
-func DoHDnsttCheckBin(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) CheckFunc {
-	return dohDnsttCheck(bin, domain, pubkey, testURL, proxyAuth, ports)
+func DoHDnsttCheckBin(bin, domain, pubkey string, ports chan int) CheckFunc {
+	return dohDnsttCheck(bin, domain, pubkey, ports)
 }
 
 // DoHDnsttCheck runs an e2e test using dnstt-client in DoH mode.
-func DoHDnsttCheck(domain, pubkey, testURL string, ports chan int) CheckFunc {
-	return dohDnsttCheck("dnstt-client", domain, pubkey, testURL, "", ports)
+func DoHDnsttCheck(domain, pubkey string, ports chan int) CheckFunc {
+	return dohDnsttCheck("dnstt-client", domain, pubkey, ports)
 }
 
-func dohDnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan int) CheckFunc {
-	testURL = effectiveTestURL(testURL)
+func dohDnsttCheck(bin, domain, pubkey string, ports chan int) CheckFunc {
 	var diagOnce atomic.Bool
 
 	return func(url string, timeout time.Duration) (bool, Metrics) {
@@ -238,7 +237,7 @@ func dohDnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan in
 			ports <- port
 		}()
 
-		if !waitAndTestSOCKS(ctx, port, testURL, proxyAuth, exited, timeout) {
+		if !waitAndTestSOCKS5Auth(ctx, port, exited) {
 			if diagOnce.CompareAndSwap(false, true) {
 				processExitedEarly := false
 				select {
@@ -257,7 +256,7 @@ func dohDnsttCheck(bin, domain, pubkey, testURL, proxyAuth string, ports chan in
 				} else if processExitedEarly {
 					setDiag("doh/e2e first failure (url=%s): dnstt-client exited early with no stderr", url)
 				} else {
-					setDiag("doh/e2e first failure (url=%s): curl could not get HTTP 200 through SOCKS within %v", url, timeout)
+					setDiag("doh/e2e first failure (url=%s): SOCKS5 handshake through tunnel timed out within %v", url, timeout)
 				}
 			}
 			return false, nil
