@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,9 +23,9 @@ type stepProgress struct {
 
 func (m Model) startScan() tea.Cmd {
 	return func() tea.Msg {
-		progressCh := make(chan progressMsg, 200)
+		pipelineCh := make(chan pipelineProgressMsg, 200)
 		doneCh := make(chan scanDoneMsg, 1)
-		return scanStartedMsg{progressCh: progressCh, doneCh: doneCh}
+		return scanStartedMsg{progressCh: nil, doneCh: doneCh, pipelineCh: pipelineCh}
 	}
 }
 
@@ -60,8 +61,6 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 	}
 
 	if cfg.DoH {
-		// When domain is set, skip basic resolve (A record for google.com) —
-		// tunnel domains have no A record. Go straight to resolve/tunnel.
 		if cfg.Domain == "" {
 			steps = append(steps, scanner.Step{
 				Name: "doh/resolve", Timeout: dur,
@@ -112,14 +111,16 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 			})
 		}
 		if cfg.Domain != "" && cfg.Pubkey != "" {
-			// E2E tunnel test: verify dnstt Noise handshake completes through
-			// each resolver. The SOCKS port only opens after the cryptographic
-			// handshake succeeds through the DNS tunnel — proving the resolver
-			// carries tunnel traffic bidirectionally. Fast (~2-5s per resolver).
 			steps = append(steps, scanner.Step{
 				Name: "e2e/dnstt", Timeout: e2eDur,
 				Check: scanner.DnsttCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports), SortBy: "socks_ms",
 			})
+			if cfg.Throughput {
+				steps = append(steps, scanner.Step{
+					Name: "throughput/dnstt", Timeout: e2eDur,
+					Check: scanner.ThroughputCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports), SortBy: "throughput_ms",
+				})
+			}
 		}
 		if cfg.Domain != "" && cfg.Cert != "" {
 			steps = append(steps, scanner.Step{
@@ -131,53 +132,101 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 	return steps, nil
 }
 
-func launchScan(ctx context.Context, ips []string, cfg ScanConfig, steps []scanner.Step, progressCh chan progressMsg, doneCh chan scanDoneMsg) {
+func launchScan(ctx context.Context, ips []string, cfg ScanConfig, steps []scanner.Step, pipelineCh chan pipelineProgressMsg, doneCh chan scanDoneMsg) {
 	// Apply EDNS buffer size before scanning
 	if cfg.EDNSSize > 0 {
 		scanner.EDNSBufSize = uint16(cfg.EDNSSize)
 	}
-	// Apply query size cap (dnstt-client MTU)
 	scanner.DnsttMTU = cfg.QuerySize
 
 	if len(steps) == 0 {
 		doneCh <- scanDoneMsg{err: fmt.Errorf("no scan steps configured")}
-		close(progressCh)
+		close(pipelineCh)
 		return
 	}
 
-	stepIdx := 0
-	factory := func(stepName string) scanner.ProgressFunc {
-		idx := stepIdx
-		stepIdx++
-		return func(done, total, passed, failed int) {
-			select {
-			case progressCh <- progressMsg{
-				stepIndex: idx,
-				done:      done,
-				total:     total,
-				passed:    passed,
-				failed:    failed,
-			}:
-			default:
-				// Drop update if buffer full — avoids blocking the scanner
-			}
-		}
-	}
-
 	go func() {
-		defer close(progressCh)
+		defer close(pipelineCh)
 		defer func() {
 			if r := recover(); r != nil {
 				doneCh <- scanDoneMsg{err: fmt.Errorf("scan panicked: %v", r)}
 			}
 		}()
+
 		start := time.Now()
-		report := scanner.RunChainQuietCtx(ctx, ips, cfg.Workers, steps, factory)
+		ch := scanner.RunPipeline(ctx, ips, cfg.Workers, steps)
+
+		stepTested := make([]int, len(steps))
+		stepPassed := make([]int, len(steps))
+		stepFailed := make([]int, len(steps))
+
+		var report scanner.ChainReport
+		var done, pass, fail int
+		total := len(ips)
+
+		for r := range ch {
+			done++
+
+			var latestIP string
+			var latestMetrics scanner.Metrics
+
+			if r.FailedStep == -1 {
+				for si := range steps {
+					stepTested[si]++
+					stepPassed[si]++
+				}
+				pass++
+				report.Passed = append(report.Passed, scanner.IPRecord{IP: r.IP, Metrics: r.Metrics})
+				latestIP = r.IP
+				latestMetrics = r.Metrics
+			} else {
+				for si := 0; si <= r.FailedStep; si++ {
+					stepTested[si]++
+					if si < r.FailedStep {
+						stepPassed[si]++
+					} else {
+						stepFailed[si]++
+					}
+				}
+				fail++
+				report.Failed = append(report.Failed, scanner.IPRecord{IP: r.IP})
+			}
+
+			// Send progress update
+			select {
+			case pipelineCh <- pipelineProgressMsg{
+				done:          done,
+				total:         total,
+				passed:        pass,
+				failed:        fail,
+				latestIP:      latestIP,
+				latestMetrics: latestMetrics,
+				stepTested:    append([]int{}, stepTested...),
+				stepPassed:    append([]int{}, stepPassed...),
+				stepFailed:    append([]int{}, stepFailed...),
+			}:
+			default:
+			}
+		}
+
+		// Build step results
+		report.Steps = make([]scanner.StepResult, len(steps))
+		for i, step := range steps {
+			report.Steps[i] = scanner.StepResult{
+				Name:   step.Name,
+				Tested: stepTested[i],
+				Passed: stepPassed[i],
+				Failed: stepFailed[i],
+			}
+		}
+		if report.Passed == nil {
+			report.Passed = []scanner.IPRecord{}
+		}
+
 		elapsed := time.Since(start)
 		var writeErr error
 		if cfg.OutputFile != "" {
 			writeErr = scanner.WriteChainReport(report, cfg.OutputFile)
-			// Also write plain IP list alongside JSON
 			if writeErr == nil && len(report.Passed) > 0 {
 				ipFile := strings.TrimSuffix(cfg.OutputFile, ".json") + "_ips.txt"
 				_ = scanner.WriteIPList(report.Passed, ipFile)
@@ -187,7 +236,7 @@ func launchScan(ctx context.Context, ips []string, cfg ScanConfig, steps []scann
 	}()
 }
 
-func waitForProgress(ch chan progressMsg) tea.Cmd {
+func waitForPipeline(ch chan pipelineProgressMsg) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-ch
 		if !ok {
@@ -206,9 +255,14 @@ func waitForDone(ch chan scanDoneMsg) tea.Cmd {
 func updateRunning(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scanStartedMsg:
-		m.progressCh = msg.progressCh
+		m.pipelineCh = msg.pipelineCh
 		m.doneCh = msg.doneCh
 		m.scanStart = time.Now()
+		m.pipelineDone = 0
+		m.pipelineTotal = len(m.ips)
+		m.pipelinePassed = 0
+		m.pipelineFailed = 0
+		m.recentPassed = nil
 
 		steps, err := buildSteps(m.config)
 		if err != nil {
@@ -220,30 +274,43 @@ func updateRunning(m Model, msg tea.Msg) (Model, tea.Cmd) {
 		for i, s := range steps {
 			m.steps[i] = stepProgress{name: s.Name}
 		}
+		m.pStepTested = make([]int, len(steps))
+		m.pStepPassed = make([]int, len(steps))
+		m.pStepFailed = make([]int, len(steps))
 
 		ctx, cancel := context.WithCancel(context.Background())
 		m.scanCancel = cancel
 
 		scanner.ResetE2EDiagnostic()
-		launchScan(ctx, m.ips, m.config, steps, msg.progressCh, msg.doneCh)
+		launchScan(ctx, m.ips, m.config, steps, msg.pipelineCh, msg.doneCh)
 
 		return m, tea.Batch(
-			waitForProgress(msg.progressCh),
+			waitForPipeline(msg.pipelineCh),
 			waitForDone(msg.doneCh),
 			tickCmd(),
 		)
 
-	case progressMsg:
-		if msg.stepIndex < len(m.steps) {
-			m.steps[msg.stepIndex].done = msg.done
-			m.steps[msg.stepIndex].total = msg.total
-			m.steps[msg.stepIndex].passed = msg.passed
-			m.steps[msg.stepIndex].failed = msg.failed
-			if msg.done == msg.total && msg.total > 0 {
-				m.steps[msg.stepIndex].finished = true
+	case pipelineProgressMsg:
+		m.pipelineDone = msg.done
+		m.pipelinePassed = msg.passed
+		m.pipelineFailed = msg.failed
+
+		// Update per-step stats
+		copy(m.pStepTested, msg.stepTested)
+		copy(m.pStepPassed, msg.stepPassed)
+		copy(m.pStepFailed, msg.stepFailed)
+
+		// Track recent passed IPs (last 8)
+		if msg.latestIP != "" {
+			m.recentPassed = append(m.recentPassed, scanner.IPRecord{
+				IP: msg.latestIP, Metrics: msg.latestMetrics,
+			})
+			if len(m.recentPassed) > 8 {
+				m.recentPassed = m.recentPassed[len(m.recentPassed)-8:]
 			}
 		}
-		return m, waitForProgress(m.progressCh)
+
+		return m, waitForPipeline(m.pipelineCh)
 
 	case scanDoneMsg:
 		m.report = msg.report
@@ -306,31 +373,95 @@ func viewRunning(m Model) string {
 	b.WriteString(dimStyle.Render(elapsed.String()))
 	b.WriteString("\n\n")
 
-	for _, step := range m.steps {
+	// Overall progress bar
+	total := m.pipelineTotal
+	if total == 0 {
+		total = len(m.ips)
+	}
+	pct := 0
+	if total > 0 {
+		pct = m.pipelineDone * 100 / total
+	}
+	bar := progressBar(pct, 30)
+	b.WriteString(fmt.Sprintf("  %s  %d/%d  ", bar, m.pipelineDone, total))
+	b.WriteString(greenStyle.Render(fmt.Sprintf("%d passed", m.pipelinePassed)))
+	b.WriteString("  ")
+	b.WriteString(redStyle.Render(fmt.Sprintf("%d failed", m.pipelineFailed)))
+	b.WriteString("\n\n")
+
+	// Pipeline steps
+	b.WriteString(dimStyle.Render("  Pipeline: "))
+	for i, step := range m.steps {
+		if i > 0 {
+			b.WriteString(dimStyle.Render(" → "))
+		}
+		b.WriteString(dimStyle.Render(step.name))
+	}
+	b.WriteString("\n\n")
+
+	// Per-step breakdown
+	b.WriteString(dimStyle.Render("  Step breakdown:"))
+	b.WriteString("\n")
+	for i, step := range m.steps {
+		tested := 0
+		passed := 0
+		if i < len(m.pStepTested) {
+			tested = m.pStepTested[i]
+			passed = m.pStepPassed[i]
+		}
+		passRate := 0
+		if tested > 0 {
+			passRate = passed * 100 / tested
+		}
+
 		icon := dimStyle.Render("○")
-		if step.finished {
-			if step.passed > 0 {
+		if tested > 0 {
+			if passRate >= 50 {
 				icon = greenStyle.Render("✔")
+			} else if passRate >= 20 {
+				icon = yellowStyle.Render("◉")
 			} else {
 				icon = redStyle.Render("✘")
 			}
-		} else if step.total > 0 {
-			icon = yellowStyle.Render("◉")
 		}
 
-		pct := 0
-		if step.total > 0 {
-			pct = step.done * 100 / step.total
+		b.WriteString(fmt.Sprintf("    %s %-18s ", icon, step.name))
+		if tested > 0 {
+			b.WriteString(greenStyle.Render(fmt.Sprintf("%d", passed)))
+			b.WriteString(dimStyle.Render(fmt.Sprintf("/%d ", tested)))
+			b.WriteString(dimStyle.Render(fmt.Sprintf("(%d%%)", passRate)))
+		} else {
+			b.WriteString(dimStyle.Render("waiting..."))
 		}
-
-		bar := progressBar(pct, 20)
-
-		b.WriteString(fmt.Sprintf("  %s %-18s %s  %d/%d  ",
-			icon, step.name, bar, step.done, step.total))
-		b.WriteString(greenStyle.Render(fmt.Sprintf("%d✔", step.passed)))
-		b.WriteString("  ")
-		b.WriteString(redStyle.Render(fmt.Sprintf("%d✘", step.failed)))
 		b.WriteString("\n")
+	}
+
+	// Recent passed IPs
+	if len(m.recentPassed) > 0 {
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  Recent results:"))
+		b.WriteString("\n")
+		for _, r := range m.recentPassed {
+			var parts []string
+			if r.Metrics != nil {
+				keys := make([]string, 0, len(r.Metrics))
+				for k := range r.Metrics {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				for _, k := range keys {
+					v := r.Metrics[k]
+					if v == float64(int(v)) {
+						parts = append(parts, fmt.Sprintf("%s=%d", k, int(v)))
+					} else {
+						parts = append(parts, fmt.Sprintf("%s=%.1f", k, v))
+					}
+				}
+			}
+			b.WriteString(fmt.Sprintf("    %s %-15s  %s\n",
+				greenStyle.Render("✔"), r.IP,
+				dimStyle.Render(strings.Join(parts, "  "))))
+		}
 	}
 
 	b.WriteString("\n")

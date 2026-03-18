@@ -45,6 +45,8 @@ const (
 	fPubkey    // e2e fields below
 	fCert
 	fE2ETimeout
+	fThroughput
+	fDiscover
 	fStart
 )
 
@@ -73,6 +75,8 @@ var allFields = []fieldDef{
 	{fPubkey, "Pubkey", "", "Hex public key for dnstt. Requires dnstt-client in PATH.", txtPubkey},
 	{fCert, "Cert", "", "Path to slipstream TLS cert. Requires slipstream-client in PATH.", txtCert},
 	{fE2ETimeout, "E2E Timeout (s)", "", "Seconds to wait for each e2e tunnel connectivity test.", txtE2ETimeout},
+	{fThroughput, "Throughput Test", "", "Test real payload transfer through tunnel after e2e (HTTP GET through SOCKS).", -1},
+	{fDiscover, "Discover Neighbors", "Discovery", "Auto-scan /24 subnets when a resolver passes. Finds nearby working resolvers.", -1},
 	{fStart, "Start Scan", "", "Run the scan with the settings above.", -1},
 }
 
@@ -86,6 +90,9 @@ func visibleFields(cfg ScanConfig) []fieldDef {
 	var out []fieldDef
 	for _, f := range allFields {
 		if e2eSubFields[f.id] && !cfg.E2E {
+			continue
+		}
+		if throughputSubFields[f.id] && !cfg.E2E {
 			continue
 		}
 		// slipstream-client has no Windows binary — hide Cert field on Windows
@@ -151,8 +158,13 @@ func initConfigInputs() []textinput.Model {
 	return inputs
 }
 
+// e2eSubFields extended to include throughput
+var throughputSubFields = map[fieldID]bool{
+	fThroughput: true,
+}
+
 func isToggle(id fieldID) bool {
-	return id == fSkipPing || id == fSkipNXD || id == fEDNS || id == fE2E
+	return id == fSkipPing || id == fSkipNXD || id == fEDNS || id == fE2E || id == fThroughput || id == fDiscover
 }
 
 func currentField(m Model) fieldDef {
@@ -240,6 +252,10 @@ func toggleField(m *Model, id fieldID) {
 				break
 			}
 		}
+	case fThroughput:
+		m.config.Throughput = !m.config.Throughput
+	case fDiscover:
+		m.config.Discover = !m.config.Discover
 	}
 }
 
@@ -395,6 +411,10 @@ func getToggleValue(m Model, id fieldID) bool {
 		return m.config.EDNS
 	case fE2E:
 		return m.config.E2E
+	case fThroughput:
+		return m.config.Throughput
+	case fDiscover:
+		return m.config.Discover
 	}
 	return false
 }
