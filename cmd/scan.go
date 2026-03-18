@@ -352,21 +352,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "\n  %s━━━ Batch %d/%d (%d IPs) ━━━%s\n\n",
 				colorCyan, batchNum, totalBatches, len(chunk), colorReset)
 
-			batchReport := scanner.RunChainQuietCtx(ctx, chunk, workers, steps,
-				newScanProgressFactory(len(steps), stepDescriptions))
-
+			batchReport := runPipelineScan(ctx, chunk, workers, steps)
 			scanner.MergeChainReports(&report, batchReport)
 
-			// Save after each batch
 			saveResults(report)
 			totalPassed := len(allPassed) + len(report.Passed)
 			fmt.Fprintf(os.Stderr, "  %s✔ Batch %d done — %d passed so far — saved to %s%s\n",
 				colorGreen, batchNum, totalPassed, outputFile, colorReset)
 		}
 	} else {
-		// No batching — scan all at once
-		report = scanner.RunChainQuietCtx(ctx, ips, workers, steps,
-			newScanProgressFactory(len(steps), stepDescriptions))
+		report = runPipelineScan(ctx, ips, workers, steps)
 	}
 
 	// --discover: find neighbor /24 subnets from passed IPs and scan them
@@ -378,14 +373,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 				break
 			}
 
-			// Collect /24s from ALL passed IPs (including previous rounds)
 			passedIPs := make([]string, len(report.Passed))
 			for i, r := range report.Passed {
 				passedIPs[i] = r.IP
 			}
 			newSubnets := scanner.SubnetsFromIPs(passedIPs)
 
-			// Filter out already-known subnets
 			var toExpand []string
 			for _, cidr := range newSubnets {
 				if _, ok := knownSubnets[cidr]; !ok {
@@ -398,7 +391,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 				break
 			}
 
-			// Expand to individual IPs, excluding already scanned
 			neighborIPs := scanner.ExpandSubnets(toExpand, scanned)
 			if len(neighborIPs) == 0 {
 				fmt.Fprintf(os.Stderr, "\n  %s✔ Discovery round %d: %d subnets but all IPs already scanned%s\n",
@@ -406,7 +398,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 				break
 			}
 
-			// Mark as scanned
 			for _, ip := range neighborIPs {
 				scanned[ip] = struct{}{}
 			}
@@ -414,12 +405,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "\n  %s━━━ Discovery round %d: %d new /24 subnets → %d IPs ━━━%s\n\n",
 				colorCyan, round, len(toExpand), len(neighborIPs), colorReset)
 
-			roundReport := scanner.RunChainQuietCtx(ctx, neighborIPs, workers, steps,
-				newScanProgressFactory(len(steps), stepDescriptions))
-
+			roundReport := runPipelineScan(ctx, neighborIPs, workers, steps)
 			scanner.MergeChainReports(&report, roundReport)
 
-			// Save after each discovery round
 			saveResults(report)
 			totalPassed := len(allPassed) + len(report.Passed)
 			fmt.Fprintf(os.Stderr, "  %s✔ Round %d: %d new resolvers — %d total passed — saved to %s%s\n",
@@ -683,4 +671,128 @@ func formatMetric(v float64) string {
 
 func digitCount(n int) int {
 	return len(fmt.Sprintf("%d", n))
+}
+
+// runPipelineScan runs the DFS-style pipeline where each worker processes
+// one IP through ALL steps sequentially. Results appear as soon as individual
+// IPs complete the pipeline — no waiting for all IPs to finish a step.
+func runPipelineScan(ctx context.Context, ips []string, workers int, steps []scanner.Step) scanner.ChainReport {
+	ch := scanner.RunPipeline(ctx, ips, workers, steps)
+
+	w := os.Stderr
+	start := time.Now()
+	tty := isTTY()
+
+	// Print pipeline banner
+	if tty {
+		fmt.Fprintf(w, "  %s── Pipeline: ", colorDim)
+		for i, s := range steps {
+			if i > 0 {
+				fmt.Fprintf(w, " → ")
+			}
+			fmt.Fprintf(w, "%s", s.Name)
+		}
+		fmt.Fprintf(w, " ──%s\n\n", colorReset)
+	}
+
+	stepTested := make([]int, len(steps))
+	stepPassed := make([]int, len(steps))
+	stepFailed := make([]int, len(steps))
+
+	var report scanner.ChainReport
+	var done, pass, fail int
+	total := len(ips)
+
+	for r := range ch {
+		done++
+
+		if r.FailedStep == -1 {
+			// Passed all steps
+			for si := range steps {
+				stepTested[si]++
+				stepPassed[si]++
+			}
+			pass++
+			report.Passed = append(report.Passed, scanner.IPRecord{IP: r.IP, Metrics: r.Metrics})
+
+			// Show passed IP immediately
+			if tty {
+				var parts []string
+				if r.Metrics != nil {
+					keys := make([]string, 0, len(r.Metrics))
+					for k := range r.Metrics {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+					for _, k := range keys {
+						parts = append(parts, fmt.Sprintf("%s=%s", k, formatMetric(r.Metrics[k])))
+					}
+				}
+				fmt.Fprintf(w, "\r\033[2K  %s✔%s %-15s  %s%s%s\n",
+					colorGreen, colorReset, r.IP, colorDim, strings.Join(parts, "  "), colorReset)
+			}
+		} else {
+			// Failed — update per-step stats up to the failed step
+			for si := 0; si <= r.FailedStep; si++ {
+				stepTested[si]++
+				if si < r.FailedStep {
+					stepPassed[si]++
+				} else {
+					stepFailed[si]++
+				}
+			}
+			fail++
+			report.Failed = append(report.Failed, scanner.IPRecord{IP: r.IP})
+		}
+
+		// Progress bar (always the last line, updated with \r)
+		if tty && total > 0 {
+			pct := done * 100 / total
+			elapsed := time.Since(start).Truncate(time.Second)
+			bar := progressBar(pct, 20)
+			fmt.Fprintf(w, "\r\033[2K  %sscanning%s  %s  %d/%d  %s✔ %d%s  %s✘ %d%s  %s%s%s",
+				colorBold, colorReset, bar, done, total,
+				colorGreen, pass, colorReset,
+				colorRed, fail, colorReset,
+				colorDim, elapsed, colorReset)
+		}
+	}
+
+	// Final completion line
+	if tty {
+		elapsed := time.Since(start).Truncate(time.Second)
+		fmt.Fprintf(w, "\r\033[2K  %s✔%s Pipeline complete  %s%d/%d passed%s  %s%s%s\n",
+			colorGreen, colorReset,
+			colorGreen, pass, total, colorReset,
+			colorDim, elapsed, colorReset)
+	}
+
+	// Build step results for the report
+	report.Steps = make([]scanner.StepResult, len(steps))
+	for i, step := range steps {
+		report.Steps[i] = scanner.StepResult{
+			Name:   step.Name,
+			Tested: stepTested[i],
+			Passed: stepPassed[i],
+			Failed: stepFailed[i],
+		}
+	}
+
+	if report.Passed == nil {
+		report.Passed = []scanner.IPRecord{}
+	}
+
+	// Sort passed results by the last step's primary metric
+	if len(steps) > 0 {
+		lastSort := steps[len(steps)-1].SortBy
+		if lastSort != "" && len(report.Passed) > 1 {
+			sort.SliceStable(report.Passed, func(i, j int) bool {
+				vi := report.Passed[i].Metrics[lastSort]
+				vj := report.Passed[j].Metrics[lastSort]
+				return vi < vj
+			})
+		}
+	}
+
+	return report
 }
