@@ -319,7 +319,7 @@ func slipstreamCheck(bin, domain, certPath string, ports chan int) CheckFunc {
 				} else if processExitedEarly {
 					setDiag("e2e/slipstream first failure (ip=%s): process exited early with no stderr", ip)
 				} else {
-					setDiag("e2e/slipstream first failure (ip=%s): curl could not get HTTP 200 through SOCKS within %v", ip, timeout)
+					setDiag("e2e/slipstream first failure (ip=%s): SOCKS5 CONNECT did not succeed within %v", ip, timeout)
 				}
 			}
 			return false, nil

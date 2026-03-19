@@ -176,9 +176,6 @@ func runChain(cmd *cobra.Command, args []string) error {
 				}
 				binPaths["dnstt-client"] = bin
 			}
-			if _, err := findBinary("curl"); err != nil {
-				return fmt.Errorf("step %q requires curl in PATH (not found)", cfg.name)
-			}
 		case "e2e/slipstream":
 			if _, ok := binPaths["slipstream-client"]; !ok {
 				bin, err := findBinary("slipstream-client")
@@ -186,9 +183,6 @@ func runChain(cmd *cobra.Command, args []string) error {
 					return fmt.Errorf("step %q requires slipstream-client: %w", cfg.name, err)
 				}
 				binPaths["slipstream-client"] = bin
-			}
-			if _, err := findBinary("curl"); err != nil {
-				return fmt.Errorf("step %q requires curl in PATH (not found)", cfg.name)
 			}
 		}
 	}
