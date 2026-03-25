@@ -293,6 +293,9 @@ findns scan --domain t.example.com
 | `--edns` | Include EDNS payload size check | `false` |
 | `--edns-size` | EDNS0 UDP payload size in bytes (larger = better throughput) | `1232` |
 | `--throughput` | Include payload transfer test after e2e (requires `--pubkey`) | `false` |
+| `--socks-user` | SOCKS5 proxy username (for dnstt setups requiring auth) | (empty) |
+| `--socks-pass` | SOCKS5 proxy password | (empty) |
+| `--connect-addr` | `host:port` for SOCKS5 CONNECT probe (use `host:22` for SSH) | `example.com:80` |
 | `--discover` | Auto-discover neighbor /24 subnets when resolvers pass all steps | `false` |
 | `--discover-rounds` | Max neighbor discovery rounds | `3` |
 | `--cidr` | Scan a CIDR range directly (e.g. `--cidr 5.52.0.0/16`) | — |
@@ -332,6 +335,22 @@ findns scan --domain t.example.com --pubkey <key> --throughput
 ```
 
 **Metrics:** `throughput_bytes` (total bytes received), `throughput_ms` (total transfer time)
+
+---
+
+### 🔐 SOCKS5 Authentication (`--socks-user`, `--socks-pass`)
+
+For dnstt setups that require SOCKS5 username/password authentication (RFC 1929):
+
+```bash
+# E2E with SOCKS5 auth
+findns scan --domain t.example.com --pubkey <key> --socks-user myuser --socks-pass mypass
+
+# SSH probe — test connectivity to SSH server through the tunnel
+findns scan --domain t.example.com --pubkey <key> --socks-user myuser --socks-pass mypass --connect-addr localhost:22
+```
+
+When `--connect-addr` targets port 22, findns reads the SSH banner (`SSH-2.0-...`) after the SOCKS5 CONNECT succeeds, providing stronger proof of tunnel connectivity. Default target is `example.com:80`.
 
 ---
 
@@ -1005,6 +1024,9 @@ findns tui
 | `--edns` | فعال‌سازی تست سایز EDNS payload | `false` |
 | `--edns-size` | سایز بافر EDNS0 به بایت (بزرگتر = سرعت بیشتر) | `1232` |
 | `--throughput` | تست انتقال واقعی دیتا بعد از e2e (نیاز به `--pubkey`) | `false` |
+| `--socks-user` | نام کاربری SOCKS5 برای احراز هویت پروکسی | (خالی) |
+| `--socks-pass` | رمز عبور SOCKS5 | (خالی) |
+| `--connect-addr` | `host:port` برای تست CONNECT (مثلاً `host:22` برای SSH) | `example.com:80` |
 | `--discover` | کشف خودکار /24 همسایه وقتی resolver پاس شد | `false` |
 | `--discover-rounds` | حداکثر تعداد دورهای کشف همسایه | `3` |
 | `--cidr` | اسکن مستقیم رنج CIDR (مثلاً `--cidr 5.52.0.0/16`) | — |

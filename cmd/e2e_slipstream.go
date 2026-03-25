@@ -20,6 +20,9 @@ var e2eSlipstreamCmd = &cobra.Command{
 func init() {
 	e2eSlipstreamCmd.Flags().String("domain", "", "Slipstream tunnel domain")
 	e2eSlipstreamCmd.Flags().String("cert", "", "path to Slipstream certificate for cert pinning (optional)")
+	e2eSlipstreamCmd.Flags().String("socks-user", "", "SOCKS5 username for proxy auth")
+	e2eSlipstreamCmd.Flags().String("socks-pass", "", "SOCKS5 password for proxy auth")
+	e2eSlipstreamCmd.Flags().String("connect-addr", "", "host:port for SOCKS5 CONNECT probe (default example.com:80)")
 	e2eSlipstreamCmd.MarkFlagRequired("domain")
 	e2eCmd.AddCommand(e2eSlipstreamCmd)
 }
@@ -27,6 +30,9 @@ func init() {
 func runE2ESlipstream(cmd *cobra.Command, args []string) error {
 	domain, _ := cmd.Flags().GetString("domain")
 	certPath, _ := cmd.Flags().GetString("cert")
+	socksUser, _ := cmd.Flags().GetString("socks-user")
+	socksPass, _ := cmd.Flags().GetString("socks-pass")
+	connectAddr, _ := cmd.Flags().GetString("connect-addr")
 	bin, err := findBinary("slipstream-client")
 	if err != nil {
 		return err
@@ -39,7 +45,8 @@ func runE2ESlipstream(cmd *cobra.Command, args []string) error {
 
 	dur := time.Duration(e2eTimeout) * time.Second
 	ports := scanner.PortPool(30000, workers)
-	check := scanner.SlipstreamCheckBin(bin, domain, certPath, ports)
+	opts := scanner.SOCKS5Opts{User: socksUser, Pass: socksPass, ConnectAddr: connectAddr}
+	check := scanner.SlipstreamCheckBin(bin, domain, certPath, ports, opts)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

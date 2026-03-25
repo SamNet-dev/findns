@@ -61,6 +61,8 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 		ports = scanner.PortPool(30000, cfg.Workers)
 	}
 
+	socksOpts := scanner.SOCKS5Opts{User: cfg.SocksUser, Pass: cfg.SocksPass, ConnectAddr: cfg.ConnectAddr}
+
 	if cfg.DoH {
 		if cfg.Domain == "" {
 			steps = append(steps, scanner.Step{
@@ -77,7 +79,7 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 		if cfg.Domain != "" && cfg.Pubkey != "" {
 			steps = append(steps, scanner.Step{
 				Name: "doh/e2e", Timeout: e2eDur,
-				Check: scanner.DoHDnsttCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports), SortBy: "e2e_ms",
+				Check: scanner.DoHDnsttCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports, socksOpts), SortBy: "e2e_ms",
 			})
 		}
 	} else {
@@ -114,19 +116,19 @@ func buildSteps(cfg ScanConfig) ([]scanner.Step, error) {
 		if cfg.Domain != "" && cfg.Pubkey != "" {
 			steps = append(steps, scanner.Step{
 				Name: "e2e/dnstt", Timeout: e2eDur,
-				Check: scanner.DnsttCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports), SortBy: "socks_ms",
+				Check: scanner.DnsttCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports, socksOpts), SortBy: "socks_ms",
 			})
 			if cfg.Throughput {
 				steps = append(steps, scanner.Step{
 					Name: "throughput/dnstt", Timeout: e2eDur,
-					Check: scanner.ThroughputCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports), SortBy: "throughput_ms",
+					Check: scanner.ThroughputCheckBin(dnsttBin, cfg.Domain, cfg.Pubkey, ports, socksOpts), SortBy: "throughput_ms",
 				})
 			}
 		}
 		if cfg.Domain != "" && cfg.Cert != "" {
 			steps = append(steps, scanner.Step{
 				Name: "e2e/slipstream", Timeout: e2eDur,
-				Check: scanner.SlipstreamCheckBin(slipstreamBin, cfg.Domain, cfg.Cert, ports), SortBy: "e2e_ms",
+				Check: scanner.SlipstreamCheckBin(slipstreamBin, cfg.Domain, cfg.Cert, ports, socksOpts), SortBy: "e2e_ms",
 			})
 		}
 	}

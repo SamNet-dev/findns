@@ -24,6 +24,9 @@ const (
 	txtEDNSSize
 	txtQuerySize
 	txtE2ETimeout
+	txtSocksUser
+	txtSocksPass
+	txtConnectAddr
 	numTextInputs
 )
 
@@ -46,6 +49,9 @@ const (
 	fCert
 	fE2ETimeout
 	fThroughput
+	fSocksUser
+	fSocksPass
+	fConnectAddr
 	fDiscover
 	fStart
 )
@@ -76,6 +82,9 @@ var allFields = []fieldDef{
 	{fCert, "Cert", "", "Path to slipstream TLS cert. Requires slipstream-client in PATH.", txtCert},
 	{fE2ETimeout, "E2E Timeout (s)", "", "Seconds to wait for each e2e tunnel connectivity test.", txtE2ETimeout},
 	{fThroughput, "Throughput Test", "", "Test real payload transfer through tunnel after e2e (HTTP GET through SOCKS).", -1},
+	{fSocksUser, "SOCKS User", "", "Username for SOCKS5 proxy auth (leave empty for no-auth).", txtSocksUser},
+	{fSocksPass, "SOCKS Pass", "", "Password for SOCKS5 proxy auth (leave empty for no-auth).", txtSocksPass},
+	{fConnectAddr, "Connect Addr", "", "host:port for e2e CONNECT probe (default: example.com:80, use host:22 for SSH).", txtConnectAddr},
 	{fDiscover, "Discover Neighbors", "Discovery", "Auto-scan /24 subnets when a resolver passes. Finds nearby working resolvers.", -1},
 	{fStart, "Start Scan", "", "Run the scan with the settings above.", -1},
 }
@@ -83,6 +92,7 @@ var allFields = []fieldDef{
 // e2eSubFields are only shown when E2E toggle is on.
 var e2eSubFields = map[fieldID]bool{
 	fPubkey: true, fCert: true, fE2ETimeout: true,
+	fSocksUser: true, fSocksPass: true, fConnectAddr: true,
 }
 
 // visibleFields returns the currently visible field list based on config state.
@@ -153,6 +163,19 @@ func initConfigInputs() []textinput.Model {
 	inputs[txtE2ETimeout].Placeholder = "30"
 	inputs[txtE2ETimeout].SetValue("30")
 	inputs[txtE2ETimeout].CharLimit = 3
+
+	inputs[txtSocksUser] = textinput.New()
+	inputs[txtSocksUser].Placeholder = "username"
+	inputs[txtSocksUser].CharLimit = 128
+
+	inputs[txtSocksPass] = textinput.New()
+	inputs[txtSocksPass].Placeholder = "password"
+	inputs[txtSocksPass].EchoMode = textinput.EchoPassword
+	inputs[txtSocksPass].CharLimit = 128
+
+	inputs[txtConnectAddr] = textinput.New()
+	inputs[txtConnectAddr].Placeholder = "example.com:80"
+	inputs[txtConnectAddr].CharLimit = 256
 
 	inputs[txtDomain].Focus()
 	return inputs
@@ -305,13 +328,22 @@ func applyConfig(m Model) (Model, tea.Cmd) {
 	if v, err := strconv.Atoi(m.configInputs[txtE2ETimeout].Value()); err == nil && v > 0 {
 		m.config.E2ETimeout = v
 	}
+	m.config.SocksUser = strings.TrimSpace(m.configInputs[txtSocksUser].Value())
+	m.config.SocksPass = strings.TrimSpace(m.configInputs[txtSocksPass].Value())
+	m.config.ConnectAddr = strings.TrimSpace(m.configInputs[txtConnectAddr].Value())
 
 	// Clear all e2e fields if e2e is disabled
 	if !m.config.E2E {
 		m.config.Pubkey = ""
 		m.config.Cert = ""
+		m.config.SocksUser = ""
+		m.config.SocksPass = ""
+		m.config.ConnectAddr = ""
 		m.configInputs[txtPubkey].SetValue("")
 		m.configInputs[txtCert].SetValue("")
+		m.configInputs[txtSocksUser].SetValue("")
+		m.configInputs[txtSocksPass].SetValue("")
+		m.configInputs[txtConnectAddr].SetValue("")
 	}
 
 	if m.config.OutputFile == "" {

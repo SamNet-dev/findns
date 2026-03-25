@@ -20,6 +20,9 @@ var dohE2ECmd = &cobra.Command{
 func init() {
 	dohE2ECmd.Flags().String("domain", "", "DNSTT tunnel domain")
 	dohE2ECmd.Flags().String("pubkey", "", "DNSTT server public key")
+	dohE2ECmd.Flags().String("socks-user", "", "SOCKS5 username for proxy auth")
+	dohE2ECmd.Flags().String("socks-pass", "", "SOCKS5 password for proxy auth")
+	dohE2ECmd.Flags().String("connect-addr", "", "host:port for SOCKS5 CONNECT probe (default example.com:80)")
 	dohE2ECmd.MarkFlagRequired("domain")
 	dohE2ECmd.MarkFlagRequired("pubkey")
 	dohCmd.AddCommand(dohE2ECmd)
@@ -28,6 +31,9 @@ func init() {
 func runDoHE2E(cmd *cobra.Command, args []string) error {
 	domain, _ := cmd.Flags().GetString("domain")
 	pubkey, _ := cmd.Flags().GetString("pubkey")
+	socksUser, _ := cmd.Flags().GetString("socks-user")
+	socksPass, _ := cmd.Flags().GetString("socks-pass")
+	connectAddr, _ := cmd.Flags().GetString("connect-addr")
 	bin, err := findBinary("dnstt-client")
 	if err != nil {
 		return err
@@ -40,7 +46,8 @@ func runDoHE2E(cmd *cobra.Command, args []string) error {
 
 	dur := time.Duration(e2eTimeout) * time.Second
 	ports := scanner.PortPool(30000, workers)
-	check := scanner.DoHDnsttCheckBin(bin, domain, pubkey, ports)
+	opts := scanner.SOCKS5Opts{User: socksUser, Pass: socksPass, ConnectAddr: connectAddr}
+	check := scanner.DoHDnsttCheckBin(bin, domain, pubkey, ports, opts)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

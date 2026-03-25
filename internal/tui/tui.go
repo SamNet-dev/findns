@@ -38,6 +38,9 @@ type ScanConfig struct {
 	Discover       bool
 	DiscoverRounds int
 	Throughput     bool
+	SocksUser      string
+	SocksPass      string
+	ConnectAddr    string
 	OutputFile     string
 }
 

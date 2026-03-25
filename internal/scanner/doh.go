@@ -176,16 +176,16 @@ func DoHTunnelCheck(domain string, count int) CheckFunc {
 }
 
 // DoHDnsttCheckBin is like DoHDnsttCheck but uses an explicit binary path.
-func DoHDnsttCheckBin(bin, domain, pubkey string, ports chan int) CheckFunc {
-	return dohDnsttCheck(bin, domain, pubkey, ports)
+func DoHDnsttCheckBin(bin, domain, pubkey string, ports chan int, opts SOCKS5Opts) CheckFunc {
+	return dohDnsttCheck(bin, domain, pubkey, ports, opts)
 }
 
 // DoHDnsttCheck runs an e2e test using dnstt-client in DoH mode.
-func DoHDnsttCheck(domain, pubkey string, ports chan int) CheckFunc {
-	return dohDnsttCheck("dnstt-client", domain, pubkey, ports)
+func DoHDnsttCheck(domain, pubkey string, ports chan int, opts SOCKS5Opts) CheckFunc {
+	return dohDnsttCheck("dnstt-client", domain, pubkey, ports, opts)
 }
 
-func dohDnsttCheck(bin, domain, pubkey string, ports chan int) CheckFunc {
+func dohDnsttCheck(bin, domain, pubkey string, ports chan int, opts SOCKS5Opts) CheckFunc {
 	var diagOnce atomic.Bool
 
 	return func(url string, timeout time.Duration) (bool, Metrics) {
@@ -237,7 +237,7 @@ func dohDnsttCheck(bin, domain, pubkey string, ports chan int) CheckFunc {
 			ports <- port
 		}()
 
-		if !waitAndTestSOCKS5Connect(ctx, port, exited) {
+		if !waitAndTestSOCKS5Connect(ctx, port, exited, opts) {
 			if diagOnce.CompareAndSwap(false, true) {
 				processExitedEarly := false
 				select {

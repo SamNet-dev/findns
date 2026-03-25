@@ -75,6 +75,9 @@ func init() {
 	scanCmd.Flags().Bool("discover", false, "auto-discover neighbor /24 subnets when IPs pass all steps")
 	scanCmd.Flags().Int("discover-rounds", 3, "max neighbor discovery rounds (default 3)")
 	scanCmd.Flags().Bool("throughput", false, "include payload transfer test after e2e (requires --pubkey)")
+	scanCmd.Flags().String("socks-user", "", "SOCKS5 username for e2e tunnel proxy auth")
+	scanCmd.Flags().String("socks-pass", "", "SOCKS5 password for e2e tunnel proxy auth")
+	scanCmd.Flags().String("connect-addr", "", "host:port for SOCKS5 CONNECT probe (default example.com:80, use host:22 for SSH)")
 	rootCmd.AddCommand(scanCmd)
 }
 
@@ -98,6 +101,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 	discover, _ := cmd.Flags().GetBool("discover")
 	discoverRounds, _ := cmd.Flags().GetInt("discover-rounds")
 	throughput, _ := cmd.Flags().GetBool("throughput")
+	socksUser, _ := cmd.Flags().GetString("socks-user")
+	socksPass, _ := cmd.Flags().GetString("socks-pass")
+	connectAddr, _ := cmd.Flags().GetString("connect-addr")
+	socksOpts := scanner.SOCKS5Opts{User: socksUser, Pass: socksPass, ConnectAddr: connectAddr}
 
 	// Load additional CIDRs from file if provided
 	if cidrFile != "" {
@@ -211,7 +218,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		if domain != "" && pubkey != "" {
 			steps = append(steps, scanner.Step{
 				Name: "doh/e2e", Timeout: time.Duration(e2eTimeout) * time.Second,
-				Check: scanner.DoHDnsttCheckBin(dnsttBin, domain, pubkey, ports), SortBy: "e2e_ms",
+				Check: scanner.DoHDnsttCheckBin(dnsttBin, domain, pubkey, ports, socksOpts), SortBy: "e2e_ms",
 			})
 		}
 	} else {
@@ -254,19 +261,19 @@ func runScan(cmd *cobra.Command, args []string) error {
 			// handshake succeeds — proving bidirectional tunnel data flow.
 			steps = append(steps, scanner.Step{
 				Name: "e2e/dnstt", Timeout: time.Duration(e2eTimeout) * time.Second,
-				Check: scanner.DnsttCheckBin(dnsttBin, domain, pubkey, ports), SortBy: "socks_ms",
+				Check: scanner.DnsttCheckBin(dnsttBin, domain, pubkey, ports, socksOpts), SortBy: "socks_ms",
 			})
 			if throughput {
 				steps = append(steps, scanner.Step{
 					Name: "throughput/dnstt", Timeout: time.Duration(e2eTimeout) * time.Second,
-					Check: scanner.ThroughputCheckBin(dnsttBin, domain, pubkey, ports), SortBy: "throughput_ms",
+					Check: scanner.ThroughputCheckBin(dnsttBin, domain, pubkey, ports, socksOpts), SortBy: "throughput_ms",
 				})
 			}
 		}
 		if domain != "" && certPath != "" {
 			steps = append(steps, scanner.Step{
 				Name: "e2e/slipstream", Timeout: time.Duration(e2eTimeout) * time.Second,
-				Check: scanner.SlipstreamCheckBin(slipstreamBin, domain, certPath, ports), SortBy: "e2e_ms",
+				Check: scanner.SlipstreamCheckBin(slipstreamBin, domain, certPath, ports, socksOpts), SortBy: "e2e_ms",
 			})
 		}
 	}

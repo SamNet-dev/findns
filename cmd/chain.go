@@ -100,7 +100,8 @@ func buildStep(cfg stepConfig, defaultTimeout, defaultCount int, ports chan int,
 		if !ok || pubkey == "" {
 			return scanner.Step{}, fmt.Errorf("step %q: missing required param 'pubkey'", cfg.name)
 		}
-		return scanner.Step{Name: "e2e/dnstt", Timeout: dur, Check: scanner.DnsttCheckBin(binPaths["dnstt-client"], domain, pubkey, ports), SortBy: "socks_ms"}, nil
+		opts := scanner.SOCKS5Opts{User: cfg.params["socks-user"], Pass: cfg.params["socks-pass"], ConnectAddr: cfg.params["connect-addr"]}
+		return scanner.Step{Name: "e2e/dnstt", Timeout: dur, Check: scanner.DnsttCheckBin(binPaths["dnstt-client"], domain, pubkey, ports, opts), SortBy: "socks_ms"}, nil
 
 	case "e2e/slipstream":
 		domain, ok := cfg.params["domain"]
@@ -108,7 +109,8 @@ func buildStep(cfg stepConfig, defaultTimeout, defaultCount int, ports chan int,
 			return scanner.Step{}, fmt.Errorf("step %q: missing required param 'domain'", cfg.name)
 		}
 		cert := cfg.params["cert"]
-		return scanner.Step{Name: "e2e/slipstream", Timeout: dur, Check: scanner.SlipstreamCheckBin(binPaths["slipstream-client"], domain, cert, ports), SortBy: "e2e_ms"}, nil
+		opts := scanner.SOCKS5Opts{User: cfg.params["socks-user"], Pass: cfg.params["socks-pass"], ConnectAddr: cfg.params["connect-addr"]}
+		return scanner.Step{Name: "e2e/slipstream", Timeout: dur, Check: scanner.SlipstreamCheckBin(binPaths["slipstream-client"], domain, cert, ports, opts), SortBy: "e2e_ms"}, nil
 
 	case "throughput/dnstt":
 		domain, ok := cfg.params["domain"]
@@ -119,7 +121,8 @@ func buildStep(cfg stepConfig, defaultTimeout, defaultCount int, ports chan int,
 		if !ok || pubkey == "" {
 			return scanner.Step{}, fmt.Errorf("step %q: missing required param 'pubkey'", cfg.name)
 		}
-		return scanner.Step{Name: "throughput/dnstt", Timeout: dur, Check: scanner.ThroughputCheckBin(binPaths["dnstt-client"], domain, pubkey, ports), SortBy: "throughput_ms"}, nil
+		opts := scanner.SOCKS5Opts{User: cfg.params["socks-user"], Pass: cfg.params["socks-pass"], ConnectAddr: cfg.params["connect-addr"]}
+		return scanner.Step{Name: "throughput/dnstt", Timeout: dur, Check: scanner.ThroughputCheckBin(binPaths["dnstt-client"], domain, pubkey, ports, opts), SortBy: "throughput_ms"}, nil
 
 	case "nxdomain":
 		return scanner.Step{Name: "nxdomain", Timeout: dur, Check: scanner.NXDomainCheck(stepCount), SortBy: "hijack"}, nil
@@ -154,7 +157,8 @@ func buildStep(cfg stepConfig, defaultTimeout, defaultCount int, ports chan int,
 		if !ok || pubkey == "" {
 			return scanner.Step{}, fmt.Errorf("step %q: missing required param 'pubkey'", cfg.name)
 		}
-		return scanner.Step{Name: "doh/e2e", Timeout: dur, Check: scanner.DoHDnsttCheckBin(binPaths["dnstt-client"], domain, pubkey, ports), SortBy: "e2e_ms"}, nil
+		opts := scanner.SOCKS5Opts{User: cfg.params["socks-user"], Pass: cfg.params["socks-pass"], ConnectAddr: cfg.params["connect-addr"]}
+		return scanner.Step{Name: "doh/e2e", Timeout: dur, Check: scanner.DoHDnsttCheckBin(binPaths["dnstt-client"], domain, pubkey, ports, opts), SortBy: "e2e_ms"}, nil
 
 	default:
 		return scanner.Step{}, fmt.Errorf("unknown step type %q", cfg.name)
